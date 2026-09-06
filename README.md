@@ -42,7 +42,7 @@ each indicator to its DHIS2 identifier in **Admin → Indicators**, then run
 
 | Document | Covers |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Conventions and the rules that must hold |
+| [`docs/ENGINEERING_GUIDE.md`](docs/ENGINEERING_GUIDE.md) | Conventions and the rules that must hold |
 | [`docs/ASPIRE_REPOSITORY_ASSESSMENT.md`](docs/ASPIRE_REPOSITORY_ASSESSMENT.md) | The starting point and why the architecture is what it is |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, stack decisions, performance, failure behaviour |
 | [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) | Users, workspaces, quality bar |

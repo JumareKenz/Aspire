@@ -29,14 +29,14 @@ production build clean
 | **Actions** | Complete | Five states, assignment, outcome measured against a baseline score |
 | **Admin** | Complete | Connection, sync history, freshness, methodology, users, indicators, audit |
 | **Tests** | Complete | 207 across engines, store, adapters, geometry, pipeline, permissions, reports, components |
-| **Documentation** | Complete | 8 documents, `CLAUDE.md`, `.env.example` |
+| **Documentation** | Complete | 9 documents, `README.md`, `.env.example` |
 
 ---
 
 ## Inputs supplied later, and what they changed
 
-Three of the four originally-missing inputs were located in `/opt/hiva`
-(symlinked as `/root/hiva`) and applied.
+Three of the four originally-missing inputs were supplied later, from the HIVA
+platform repository, and applied.
 
 **HIVA brand assets — applied.** `HIVA_Logo.png` and
 `BRANDING_UPDATE_COMPLETE.md` gave the official Hayok Medicare identity. The

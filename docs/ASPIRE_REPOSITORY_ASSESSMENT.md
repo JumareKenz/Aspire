@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-06
 **Assessor:** Lead architecture pass, pre-implementation
-**Repository:** `/root/aspire`
+**Repository:** this repository, at the start of work
 
 ---
 
@@ -12,10 +12,10 @@ The build brief assumed an existing codebase to inspect, reuse, and refactor. It
 to record accurately what was actually there.
 
 ```
-$ ls -la /root/aspire
+$ ls -la .
 total 8
-drwxr-xr-x  2 root root 4096 .
-drwx------ 41 root root 4096 ..
+drwxr-xr-x  2 .
+drwx------ 41 ..
 ```
 
 The directory contained **no files at all** — no `package.json`, no git history, no framework,
