@@ -36,23 +36,23 @@ export const EVAL_CASES: EvalCase[] = [
     id: 'lowest-performing-area',
     question: 'Which area has the lowest performance?',
     expectKind: 'RANK_UNITS',
-    expectTopRefId: 'lga-eguma',
-    expectHeadlineContains: ['eguma', 'lowest'],
+    expectTopRefId: 'lga-balanga',
+    expectHeadlineContains: ['balanga', 'lowest'],
   },
   {
     id: 'below-target',
     question: 'Which LGAs are performing below target?',
     expectKind: 'BELOW_TARGET',
     // The four LGAs given a sustained planted decline must all be listed.
-    expectContainsRefIds: ['lga-eguma', 'lga-ilesan', 'lga-lamurde', 'lga-fankama'],
+    expectContainsRefIds: ['lga-shongom', 'lga-balanga', 'lga-dukku', 'lga-nafada'],
     expectMinRows: 4,
   },
   {
     id: 'most-improved',
     question: 'Which areas improved most?',
     expectKind: 'MOST_IMPROVED',
-    expectTopRefId: 'lga-chalawa',
-    expectHeadlineContains: ['chalawa'],
+    expectTopRefId: 'lga-billiri',
+    expectHeadlineContains: ['billiri'],
   },
   {
     id: 'why-declining',
@@ -75,9 +75,9 @@ export const EVAL_CASES: EvalCase[] = [
   },
   {
     id: 'compare-two',
-    question: 'Compare Eguma and Chalawa',
+    question: 'Compare Balanga and Billiri',
     expectKind: 'COMPARE_UNITS',
-    expectHeadlineContains: ['chalawa', 'eguma'],
+    expectHeadlineContains: ['billiri', 'balanga'],
   },
   {
     id: 'data-quality',

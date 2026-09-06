@@ -15,33 +15,67 @@
 :root {
   color-scheme: light;
 
-  /* Brand — replace with official HIVA values when supplied. */
-  --brand-900: #05312f;
-  --brand-800: #06403d;
-  --brand-700: #075550;
-  --brand-600: #0b6b64;
-  --brand-500: #10857c;
-  --brand-400: #3ba79d;
-  --brand-200: #a9d8d2;
-  --brand-100: #ddefec;
-  --brand-050: #f0f8f7;
+  /* ------------------------------------------------------------------
+     HIVA / Hayok Medicare brand.
+
+     Taken from the supplied brand assets: the documented Hayok Medicare
+     palette (forest green #1A5C38, warm gold #C8A46E, off-white #F5F2EC,
+     charcoal #2C2C2C, muted #6B6B6B, light sage #D4E4DA) and the HIVA logo
+     artwork itself, whose deepest green measures #014C37 and whose gold
+     measures #DF9F3E.
+
+     The ramp is built around those two anchors. Brand colour is used for
+     identity, primary actions, selected states and active navigation — not
+     for data, which has its own validated palette below.
+     ------------------------------------------------------------------ */
+  --brand-900: #01301f;
+  --brand-800: #013f2b;
+  --brand-700: #014c37;
+  --brand-600: #1a5c38;
+  --brand-500: #23764a;
+  --brand-400: #3f9468;
+  --brand-200: #a8cdb8;
+  --brand-100: #d4e4da;
+  --brand-050: #eef5f0;
+
+  /* Warm gold. Reserved for accents and the mark; never for data series. */
+  --accent-700: #8a6420;
+  --accent-600: #a97f2c;
+  --accent-500: #c8a46e;
+  --accent-400: #df9f3e;
+  --accent-100: #f3e8d5;
+  --accent-050: #faf5ec;
+
+  /*
+   * Primary-action surface and its text, tuned per mode.
+   *
+   * Light mode puts white on the deep brand green. Dark mode cannot: the
+   * brand green has to be lightened to stay visible against a dark surface,
+   * and white on that lightened green only reaches 3.7:1 — short of the 4.5:1
+   * small-text requirement. Dark mode therefore inverts, using dark text on a
+   * lighter green, which clears both the text and the non-text thresholds.
+   */
+  --brand-action: var(--brand-600);
+  --brand-action-hover: var(--brand-700);
+  --brand-action-fg: #ffffff;
 
   /* Neutrals — a slightly warm grey reads calmer than pure grey on large surfaces. */
-  --ink-900: #14171a;
-  --ink-800: #22272c;
-  --ink-700: #333a41;
-  --ink-600: #4a535c;
-  --ink-500: #667079;
-  --ink-400: #8b949d;
-  --ink-300: #b9c0c7;
-  --ink-200: #d9dee3;
-  --ink-100: #eceff2;
-  --ink-050: #f5f7f9;
+  --ink-900: #1f1f1e;
+  --ink-800: #2c2c2c;
+  --ink-700: #3d3d3c;
+  --ink-600: #55554f;
+  --ink-500: #6b6b6b;
+  --ink-400: #94948d;
+  --ink-300: #bebeb6;
+  --ink-200: #dcdcd4;
+  --ink-100: #eeeee8;
+  --ink-050: #f7f6f2;
 
   --surface: #ffffff;
-  --surface-sunken: #f6f8fa;
+  --surface-sunken: #faf8f4;
   --surface-raised: #ffffff;
-  --canvas: #f2f5f7;
+  /* Hayok off-white, warmed slightly so cards separate from the page. */
+  --canvas: #f5f2ec;
   --border: var(--ink-200);
   --border-strong: var(--ink-300);
 
@@ -97,18 +131,18 @@
      which is why comparison views cap at three series before folding the
      remainder into "Other".
      ------------------------------------------------------------------ */
-  --viz-series-1: #0d9488;
+  --viz-series-1: #1a8a5f;
   --viz-series-2: #4a3aa7;
   --viz-series-3: #eb6834;
   --viz-series-4: #2a78d6;
 
   /* Sequential ramp for magnitude (choropleth, heatmap): one hue, light to dark. */
-  --viz-seq-1: #d9f0ed;
-  --viz-seq-2: #a5ded6;
-  --viz-seq-3: #66c5ba;
-  --viz-seq-4: #2ba597;
-  --viz-seq-5: #0d8479;
-  --viz-seq-6: #08605a;
+  --viz-seq-1: #dcece1;
+  --viz-seq-2: #b3d6c1;
+  --viz-seq-3: #7fbb9a;
+  --viz-seq-4: #4a9c73;
+  --viz-seq-5: #23764a;
+  --viz-seq-6: #014c37;
 
   /* Diverging: two hues about a neutral zero. Always drawn against a zero
      baseline with a signed label, so position and text carry the polarity and
@@ -147,9 +181,17 @@
     --ink-100: #1c2126;
     --ink-050: #171b1f;
     --ink-200: #262d34;
-    --brand-100: #0d2a29;
-    --brand-050: #0b2321;
-    --brand-200: #14504b;
+    --brand-100: #10301f;
+    --brand-050: #0c2418;
+    --brand-200: #1d5638;
+    --brand-600: #3f9468;
+    --brand-700: #62b088;
+    --accent-500: #d9a95f;
+    --accent-400: #e5ab4a;
+    --accent-100: #33280f;
+    --brand-action: #5cbc90;
+    --brand-action-hover: #74caa2;
+    --brand-action-fg: #06231a;
     --positive-100: #0c2a1a;
     --warning-100: #2e2208;
     --concern-100: #2e1414;
@@ -162,16 +204,16 @@
     --concern-700: #fca5a5;
     --info-600: #60a5fa;
     --info-700: #93c5fd;
-    --viz-series-1: #12a294;
+    --viz-series-1: #1fa273;
     --viz-series-2: #7d70e8;
     --viz-series-3: #dd6836;
     --viz-series-4: #4a8fe0;
-    --viz-seq-1: #0d2b29;
-    --viz-seq-2: #124a44;
-    --viz-seq-3: #16685e;
-    --viz-seq-4: #17877a;
-    --viz-seq-5: #23a496;
-    --viz-seq-6: #5cc6ba;
+    --viz-seq-1: #0d2a1e;
+    --viz-seq-2: #14442f;
+    --viz-seq-3: #1a6043;
+    --viz-seq-4: #237c56;
+    --viz-seq-5: #35a072;
+    --viz-seq-6: #6fc79b;
     --viz-diverge-positive: #4ade80;
     --viz-diverge-negative: #f87171;
     --viz-diverge-neutral: #333c44;
@@ -195,9 +237,17 @@
   --ink-100: #1c2126;
   --ink-050: #171b1f;
   --ink-200: #262d34;
-  --brand-100: #0d2a29;
-  --brand-050: #0b2321;
-  --brand-200: #14504b;
+  --brand-100: #10301f;
+  --brand-050: #0c2418;
+  --brand-200: #1d5638;
+  --brand-600: #3f9468;
+  --brand-700: #62b088;
+  --accent-500: #d9a95f;
+  --accent-400: #e5ab4a;
+  --accent-100: #33280f;
+  --brand-action: #5cbc90;
+  --brand-action-hover: #74caa2;
+  --brand-action-fg: #06231a;
   --positive-100: #0c2a1a;
   --warning-100: #2e2208;
   --concern-100: #2e1414;
@@ -213,16 +263,16 @@
   --status-fill-positive: #34d399;
   --status-fill-warning: #f5b53d;
   --status-fill-concern: #f87171;
-  --viz-series-1: #12a294;
+  --viz-series-1: #1fa273;
   --viz-series-2: #7d70e8;
   --viz-series-3: #dd6836;
   --viz-series-4: #4a8fe0;
-  --viz-seq-1: #0d2b29;
-  --viz-seq-2: #124a44;
-  --viz-seq-3: #16685e;
-  --viz-seq-4: #17877a;
-  --viz-seq-5: #23a496;
-  --viz-seq-6: #5cc6ba;
+  --viz-seq-1: #0d2a1e;
+  --viz-seq-2: #14442f;
+  --viz-seq-3: #1a6043;
+  --viz-seq-4: #237c56;
+  --viz-seq-5: #35a072;
+  --viz-seq-6: #6fc79b;
   --viz-diverge-positive: #4ade80;
   --viz-diverge-negative: #f87171;
   --viz-diverge-neutral: #333c44;
@@ -241,6 +291,7 @@
   --color-brand: var(--brand-600);
   --color-brand-strong: var(--brand-700);
   --color-brand-soft: var(--brand-100);
+  --color-accent: var(--accent-500);
   --color-positive: var(--positive-600);
   --color-warning: var(--warning-600);
   --color-concern: var(--concern-600);

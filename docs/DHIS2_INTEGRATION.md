@@ -3,11 +3,22 @@
 ## Status
 
 The platform ships a complete DHIS2 client and adapter written against the
-official Web API. **No DHIS2 instance or credentials were supplied**, so the
-integration is unit-tested against mocked responses rather than verified against
-a live server. The endpoints, parameters and response shapes follow the
-documented API; the first connection to a real instance should still be treated
-as a commissioning step.
+official Web API, configured for the target instance.
+
+| | |
+|---|---|
+| Instance | `https://dhis2.hiva.chat` |
+| Deployment | Gombe State |
+| Hierarchy | State → LGA → Ward → Community → Facility |
+| Metadata | 8 indicators, 187 data elements, 1,264 organisation units |
+| Indicators mapped | 5 of 17 carry real UIDs (see below) |
+| Credentials | **Not supplied** |
+| Live verification | **Not performed** — the instance returned `502 Bad Gateway` (its backend on port 9090 was not running) at the time of this work |
+
+The endpoints, parameters and response shapes follow the documented API and are
+unit-tested against mocked responses. First contact with the live instance
+remains a commissioning step: supply credentials, run `npm run sync`, and check
+the analytics and completeness responses against expectations.
 
 ## Configuration
 
@@ -66,8 +77,23 @@ single rounding step.
 ## Mapping the registry
 
 Each indicator carries a `source.dx` — the DHIS2 indicator or data-element UID.
-**These are `null` in the shipped registry**, because no DHIS2 metadata was
-available and inventing UIDs would produce a system that queries nothing while
+
+Five are mapped to real UIDs from the target instance's own metadata:
+
+| Indicator | DHIS2 UID |
+|---|---|
+| Antenatal care, early first contact | `lHBIJsXmN6N` |
+| Deliveries with a skilled birth attendant | `DD480KjzWyI` |
+| Postnatal care within three days | `NbBhtRKOcNG` |
+| Deliveries monitored with a partograph | `GatsIlJUfmd` |
+| Still birth rate | `wBHe2MdXjPA` |
+
+The remaining twelve are `null`. The instance defines only 8 indicators in
+total, and the rest of the SRHR registry — family planning, adolescent SRHR,
+GBV, commodity security — has no matching DHIS2 indicator there. They need
+either an indicator defined in DHIS2 or a mapping onto the underlying data
+elements (187 are available, including ANC, immunisation and delivery
+elements). Inventing UIDs would produce a system that queries nothing while
 appearing to work.
 
 Set them in **Admin → Indicators**, or in `src/config/indicators.ts` before the
@@ -81,18 +107,38 @@ Behaviour when mappings are missing:
   Admin shows a banner naming how many are unmapped. Their scores are absent
   rather than wrong.
 
-## Org-unit levels
+## Org-unit levels — configurable, and easy to get wrong
 
-DHIS2 numeric levels map onto the canonical hierarchy:
+**DHIS2 level numbers have no fixed meaning.** They depend on how the instance
+was built. A national deployment usually roots at the country, so level 1 is the
+country. The Gombe State instance roots at the state, so its level 1 *is* the
+state:
 
-| DHIS2 level | Canonical |
-|---|---|
-| 1 | `COUNTRY` |
-| 2 | `STATE` |
-| 3 | `LGA` |
-| 4 | `FACILITY` |
+| DHIS2 level | Gombe instance | Canonical |
+|---|---|---|
+| 1 | State | `STATE` |
+| 2 | LGA | `LGA` |
+| 3 | Ward | `FACILITY` |
+| 4 | Community | `FACILITY` |
+| 5 | Facility | `FACILITY` |
 
-Levels below 4 are ignored. `path` is retained as a materialised ancestor list,
+Wards and communities have no canonical tier, so they fold into the reporting
+level below the LGA rather than being dropped.
+
+Getting this wrong is not cosmetic: assuming a national shape here would file
+every LGA as a state and every ward as a facility, and every aggregate above
+them would be computed over the wrong set of units.
+
+`DHIS2_LEVEL_MAP` overrides the default for a differently-shaped instance:
+
+```bash
+DHIS2_LEVEL_MAP=1:COUNTRY,2:STATE,3:LGA,4:FACILITY
+```
+
+A malformed value is rejected at synchronisation rather than silently falling
+back, because a silently wrong hierarchy is worse than a failed sync. The same
+map drives the `LEVEL-n` dimension in analytics requests, so the numbers sent to
+DHIS2 are always the instance's own. `path` is retained as a materialised ancestor list,
 which is what makes geographic scope checks a single containment test rather
 than a recursive walk. Point geometry becomes a centroid; polygon geometry is
 not consumed here — real boundaries are supplied separately via

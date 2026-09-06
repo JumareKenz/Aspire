@@ -31,7 +31,7 @@ beforeAll(async () => {
   analyst = users.find((user) => user.role === 'ANALYST')!;
   // A user scoped to a single LGA, to check that scope is enforced inside the
   // pipeline and not only at the HTTP boundary.
-  scopedUser = { ...analyst, id: `${analyst.id}-scoped`, scope: ['lga-eguma'] };
+  scopedUser = { ...analyst, id: `${analyst.id}-scoped`, scope: ['lga-balanga'] };
   rootId = getRootOrgUnit()!.id;
   periodId = latestCompletePeriodId();
 }, 120_000);
@@ -62,8 +62,8 @@ describe('demo dataset', () => {
 
   it('marks the planted low-reporting LGA as low confidence while others stay high', () => {
     const children = getChildScorecards(rootId, periodId);
-    const weak = children.find((child) => child.orgUnitId === 'lga-hadeja-west')!;
-    const others = children.filter((child) => child.orgUnitId !== 'lga-hadeja-west');
+    const weak = children.find((child) => child.orgUnitId === 'lga-funakaye')!;
+    const others = children.filter((child) => child.orgUnitId !== 'lga-funakaye');
     expect(weak.dataConfidence.band).toBe('LOW');
     expect(weak.dataConfidence.reasons.length).toBeGreaterThan(0);
     expect(others.every((child) => child.dataConfidence.band !== 'LOW')).toBe(true);
@@ -74,7 +74,7 @@ describe('demo dataset', () => {
     // were entangled, it would be.
     const children = getChildScorecards(rootId, periodId);
     const lowest = [...children].sort((a, b) => (a.overallScore ?? 0) - (b.overallScore ?? 0))[0];
-    expect(lowest.orgUnitId).not.toBe('lga-hadeja-west');
+    expect(lowest.orgUnitId).not.toBe('lga-funakaye');
   });
 });
 
@@ -100,12 +100,12 @@ describe('pipeline guarantees', () => {
   });
 
   it('answers within the asking user’s geographic scope, not the requested one', async () => {
-    const answer = await answerQuestion('How is Chalawa performing?', scopedUser, {
-      orgUnitId: 'lga-eguma',
+    const answer = await answerQuestion('How is Billiri performing?', scopedUser, {
+      orgUnitId: 'lga-balanga',
       periodId,
     });
     // Chalawa is outside this user's scope, so the query falls back to their own.
-    expect(answer.result!.query.orgUnitId).toBe('lga-eguma');
+    expect(answer.result!.query.orgUnitId).toBe('lga-balanga');
   });
 
   it('states plainly when it cannot answer rather than inventing something', async () => {

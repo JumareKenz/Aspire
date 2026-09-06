@@ -4,6 +4,8 @@ Turns government DHIS2 SRHR reporting into performance intelligence: scorecards,
 data-quality intelligence, forecasting, evidence-grounded recommendations and
 automated reports.
 
+Built on **HIVA by Hayok Medicare**, targeting **Gombe State**.
+
 ## Getting started
 
 ```bash
@@ -52,7 +54,16 @@ each indicator to its DHIS2 identifier in **Admin → Indicators**, then run
 
 ## Important
 
-- **All figures shown are synthetic** until a DHIS2 instance is connected, and
-  are labelled as such throughout.
+- **All figures shown are synthetic** until the DHIS2 instance is connected, and
+  are labelled as such throughout. They sit on real Gombe State geography so the
+  map and hierarchy behave as they will against live data.
 - **The scorecard methodology is provisional.** The official ASPIRE-GAC
   methodology has not been supplied; every derived figure is badged accordingly.
+- **DHIS2 has not been verified against the live server.** The instance was
+  unreachable and no credentials were supplied. See
+  [`docs/DHIS2_INTEGRATION.md`](docs/DHIS2_INTEGRATION.md).
+
+## Attribution
+
+Boundary geometry: [geoBoundaries](https://www.geoboundaries.org) gbOpen NGA
+ADM2 (source: GRID3), CC BY 4.0.

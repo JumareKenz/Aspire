@@ -26,12 +26,19 @@ import { buildDemoGeography } from './geography';
  * `docs/DATA_MODEL.md`.
  */
 
+/**
+ * Planted signals, keyed to real Gombe State LGAs.
+ *
+ * These make the demo dataset exercise the analytical engines with known
+ * answers. The LGAs were chosen arbitrarily; nothing here reflects the actual
+ * performance of any real local government area.
+ */
 /** LGAs given a sustained decline in adolescent SRHR indicators. */
-export const DECLINING_LGAS = ['lga-eguma', 'lga-fankama', 'lga-ilesan', 'lga-lamurde'];
+export const DECLINING_LGAS = ['lga-shongom', 'lga-balanga', 'lga-dukku', 'lga-nafada'];
 /** LGA given badly incomplete reporting, so data confidence is low there. */
-export const LOW_REPORTING_LGA = 'lga-hadeja-west';
+export const LOW_REPORTING_LGA = 'lga-funakaye';
 /** LGA given a strong sustained improvement. */
-export const IMPROVING_LGA = 'lga-chalawa';
+export const IMPROVING_LGA = 'lga-billiri';
 
 const ADOLESCENT_INDICATORS = ['adolescent-fp-uptake', 'youth-friendly-services', 'adolescent-anc1'];
 

@@ -1,8 +1,9 @@
 # Implementation status
 
 **Date:** 2026-09-06
-**Build:** 201 tests passing · 0 lint errors · 0 type errors · 0 accessibility
-violations across 10 pages · production build clean
+**Build:** 207 tests passing · 11/11 AI evaluation cases · 0 lint errors · 0 type
+errors · 0 accessibility violations across 11 pages in **both** light and dark ·
+production build clean
 
 ---
 
@@ -18,59 +19,73 @@ violations across 10 pages · production build clean
 | **Data quality** | Complete | Seven detectors; data confidence capped by completeness; triage that survives re-sync |
 | **Forecasting** | Complete | OLS with prediction intervals; refuses below six observed periods |
 | **Insights & recommendations** | Complete | Computed from figures, each carrying its evidence |
-| **DHIS2 integration** | Complete, unverified against a live server | Official Web API; see caveat below |
-| **Demo dataset** | Complete | Deterministic, internally consistent, fictional names, planted signals |
+| **DHIS2 integration** | Complete, unverified against a live server | Official Web API; configurable level map; 5 real indicator UIDs; see caveats |
+| **Demo dataset** | Complete | Deterministic, internally consistent, real Gombe geography, planted signals |
 | **Overview** | Complete | Four movements: how are we doing / what needs attention / what changed / what we recommend |
 | **Performance** | Complete | Scorecard with domain → indicator → contributor drill-down; ranked areas |
 | **Intelligence** | Complete | Governed pipeline; 9 query kinds; evidence and interpretation shown; 11/11 evaluation cases |
-| **Map** | Complete | Four metrics; pluggable boundaries; schematic fallback, labelled |
+| **Map** | Complete | Four metrics; real Gombe LGA choropleth; schematic fallback for unmapped geography |
 | **Reports** | Complete | 5 reports, print-to-PDF, CSV export, provenance on both |
 | **Actions** | Complete | Five states, assignment, outcome measured against a baseline score |
 | **Admin** | Complete | Connection, sync history, freshness, methodology, users, indicators, audit |
-| **Tests** | Complete | 201 across engines, store, adapters, pipeline, permissions, reports, components |
+| **Tests** | Complete | 207 across engines, store, adapters, geometry, pipeline, permissions, reports, components |
 | **Documentation** | Complete | 8 documents, `CLAUDE.md`, `.env.example` |
 
 ---
 
-## Honest caveats
+## Inputs supplied later, and what they changed
 
-These are the limits of what could be verified with the inputs available. They
-are stated here rather than left for someone to discover.
+Three of the four originally-missing inputs were located in `/opt/hiva`
+(symlinked as `/root/hiva`) and applied.
 
-**1. The repository was empty.** The brief described inspecting and reusing an
-existing codebase. There was none — no files at all. Everything here was built
-from first principles. See `docs/ASPIRE_REPOSITORY_ASSESSMENT.md`.
+**HIVA brand assets — applied.** `HIVA_Logo.png` and
+`BRANDING_UPDATE_COMPLETE.md` gave the official Hayok Medicare identity. The
+mark is redrawn as SVG (`src/design/patterns/Logo.tsx`) with the ring, gold
+orbital arcs and gold-node "H" of the original, plus a favicon. The palette is
+the documented one — forest green `#1A5C38`, warm gold `#C8A46E`, off-white
+`#F5F2EC`, charcoal `#2C2C2C`, muted `#6B6B6B`, light sage `#D4E4DA` — extended
+into a ramp using the logo artwork's own measured values (`#014C37`, `#DF9F3E`).
+Brand colour is used for identity, primary actions and active navigation, not
+for data.
 
-**2. The scorecard methodology is provisional.** The official ASPIRE-GAC
-indicators, weights, thresholds and rules were not supplied. The engine is fully
-configurable and versioned; the seeded record is marked `PROVISIONAL` and every
-figure derived from it is badged. Publishing the official methodology is a
-config addition, not a code change. See `docs/SCORECARD_METHODOLOGY.md`.
+**DHIS2 instance — configured, still unverified.** `https://dhis2.hiva.chat`,
+Gombe State, 8 indicators / 187 data elements / 1,264 org units. Five indicators
+now carry real UIDs. **The instance was returning `502 Bad Gateway`** (backend
+on port 9090 not running) and no credentials were supplied, so nothing has been
+run against it live.
 
-**3. DHIS2 is unverified against a live instance.** No server or credentials
-were available. The client is written against the documented Web API and is
-unit-tested against mocked responses. Treat first contact with a real instance
-as a commissioning step. Indicator UIDs are deliberately `null` — inventing them
-would produce a system that queries nothing while appearing to work.
+**Real geography — applied.** Gombe State's eleven LGA boundaries now ship with
+the platform (`public/geo/gombe-lgas.geojson`, geoBoundaries gbOpen NGA ADM2 /
+GRID3, CC BY 4.0). The map draws a real choropleth out of the box.
 
-**4. No HIVA brand assets were available.** No logo, palette, type or tokens
-existed in the repository. Rather than invent an organisation's identity, the
-product uses a neutral mark and a restrained palette, with every brand value
-isolated in `--brand-*` in `globals.css` and a single `Logo` component. Swapping
-in official assets is a two-file change. Nothing claims to be official HIVA
-branding.
+## Remaining caveats
 
-**5. No official boundary geometry.** The map renders a clearly-labelled
-schematic layout. Setting `ASPIRE_BOUNDARIES_PATH` switches it to true geography
-with no component changes.
+**1. The repository was empty.** Everything was built from first principles. See
+`docs/ASPIRE_REPOSITORY_ASSESSMENT.md`.
 
-**6. All figures on screen are synthetic.** The demo dataset is labelled at the
-data layer, in the API, in the shell and on every report and export. It uses
-fictional place names so it cannot be mistaken for reporting about real places.
+**2. The scorecard methodology is still provisional.** The official ASPIRE-GAC
+indicators, weights and thresholds were not among the supplied material. The
+engine is configurable and versioned; the seeded record is `PROVISIONAL` and
+every derived figure is badged. See `docs/SCORECARD_METHODOLOGY.md`.
 
-**7. Language-model assistance is off by default.** It requires an explicit
-`ASPIRE_AI_ENABLED=true` plus a credential. Everything works without it; the
-model only ever chooses a query shape and phrases verified findings.
+**3. DHIS2 has not been exercised against the live server.** See above. Treat
+first contact as commissioning.
+
+**4. Twelve of seventeen indicators have no DHIS2 mapping.** The instance
+defines only 8 indicators, and family planning, adolescent SRHR, GBV and
+commodity security are not among them. They need either DHIS2 indicators
+defined or mappings onto the available data elements.
+
+**5. All figures on screen are synthetic.** The demo dataset is labelled at the
+data layer, in the API, in the shell and on every report and export. It now sits
+on *real* Gombe geography, because a map of invented places cannot be verified
+and the deployment target is known — the pervasive labelling is what prevents
+the confusion, not fictional names. Facility names remain constructed, since
+naming a real service point and attaching an invented score to it would make a
+claim about an identifiable place.
+
+**6. Language-model assistance is off by default.** It requires an explicit
+`ASPIRE_AI_ENABLED=true` plus a credential.
 
 ---
 
@@ -92,6 +107,12 @@ Recorded because they show what the tests are actually for.
 | Map failed `nested-interactive`: focusable areas inside `role="img"` are unreachable | axe audit | `role="group"` |
 | 68 findings rendered as one unbroken table several screens long | Visual review | Paginated at 25 with a count |
 | Model messaging duplicated in two panels | Visual review | Folded into one |
+| **Real boundaries rendered as one giant rectangle covering the canvas** | Applying real geography | d3-geo reads polygons *spherically* and wants clockwise exterior rings — the opposite of RFC 7946. Specification-correct data therefore describes "the whole globe minus this LGA", collapsing the fitted scale from ~15,600 to 78. Rings are rewound once in the shipped file and normalised again on load for operator-supplied files |
+| DHIS2 level mapping assumed a national hierarchy | Reading the target instance's metadata | Level map is configurable and defaults to the state-rooted Gombe shape; a malformed override is rejected rather than silently falling back |
+| Analytics `LEVEL-n` built from canonical depth, not DHIS2's own numbering | Same | Level map is inverted to recover the instance's real level numbers |
+| Map labels illegible on saturated fills | Visual review | White text with a dark halo via `paint-order`, drawn in a pass above every fill; small polygons get a leader line |
+| White-on-green primary buttons failed contrast in dark mode (3.71:1) | axe audit, dark theme | Dedicated `--brand-action` / `--brand-action-fg` tokens; dark mode inverts to dark text on a lighter green |
+| Zero-movement domains drew a stub bar labelled `+0` | Visual review | Rendered as "no change" |
 
 ---
 
@@ -102,7 +123,8 @@ Recorded because they show what the tests are actually for.
   pipeline, permission boundaries, reports, sync, UI components
 - **AI evaluation set** — 11 questions with known-correct answers, checked on the
   analytical result rather than the prose
-- **Accessibility** — axe (WCAG 2.1 AA) across 10 pages: zero violations
+- **Accessibility** — axe (WCAG 2.1 AA) across 11 pages in light *and* dark:
+  zero violations
 - **Keyboard** — drawer open/escape/focus-return, scorecard expansion, indicator
   drill-down, map selection: all verified
 - **Visual** — every page reviewed in light and dark at 768 / 900 / 1440
@@ -115,14 +137,15 @@ Recorded because they show what the tests are actually for.
 
 Stated plainly rather than presented as finished:
 
-1. **Commission against a real DHIS2 instance.** Map the indicator UIDs, run a
-   sync, and confirm the analytics and completeness responses match expectations.
-2. **Apply the official methodology** once issued, and retire the provisional record.
-3. **Apply official HIVA brand assets.**
-4. **Load real boundary geometry** to replace the schematic map.
-5. **Disaggregation.** The model and schema carry a disaggregation key and the
+1. **Commission against the live DHIS2 instance** once its backend is running
+   and credentials are available. Confirm the level map, the analytics
+   responses and completeness registrations against expectations.
+2. **Map the remaining twelve indicators**, either by defining DHIS2 indicators
+   or by mapping onto the 187 available data elements.
+3. **Apply the official methodology** once issued, and retire the provisional record.
+4. **Disaggregation.** The model and schema carry a disaggregation key and the
    registry declares dimensions per indicator, but no view breaks figures down by
    age or sex yet.
-6. **Scheduled synchronisation.** `npm run sync` is ready for cron; there is no
+5. **Scheduled synchronisation.** `npm run sync` is ready for cron; there is no
    in-app scheduler.
-7. **Password self-service.** Administrators set passwords; there is no reset flow.
+6. **Password self-service.** Administrators set passwords; there is no reset flow.

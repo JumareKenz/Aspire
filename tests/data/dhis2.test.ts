@@ -30,6 +30,7 @@ function mockFetch(handler: (url: string) => unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('Dhis2Adapter', () => {
@@ -61,35 +62,64 @@ describe('Dhis2Adapter', () => {
     expect(calls[0].url).not.toContain('test-token');
   });
 
-  it('maps the org-unit hierarchy onto canonical levels', async () => {
+  it('maps a state-rooted hierarchy onto canonical levels by default', async () => {
+    // The target instance is rooted at the state: State → LGA → Ward →
+    // Community → Facility. Wards and communities have no canonical tier and
+    // fold into the reporting level below the LGA.
     mockFetch(() => ({
       organisationUnits: [
-        { id: 'root', displayName: 'Nigeria', level: 1, path: '/root' },
-        { id: 'ou-state', displayName: 'A State', level: 2, parent: { id: 'root' }, path: '/root/ou-state' },
+        { id: 'ou-state', displayName: 'Gombe State', level: 1, path: '/ou-state' },
+        { id: 'ou-lga', displayName: 'Akko', level: 2, parent: { id: 'ou-state' }, path: '/ou-state/ou-lga' },
         {
-          id: 'ou-fac',
-          displayName: 'A Facility',
-          level: 4,
+          id: 'ou-ward',
+          displayName: 'A Ward',
+          level: 3,
           parent: { id: 'ou-lga' },
-          path: '/root/ou-state/ou-lga/ou-fac',
-          geometry: { type: 'Point', coordinates: [7.5, 9.1] },
+          path: '/ou-state/ou-lga/ou-ward',
+          geometry: { type: 'Point', coordinates: [11.08, 10.1] },
         },
-        { id: 'too-deep', displayName: 'Sub-unit', level: 5, path: '/root/a/b/c/too-deep' },
+        { id: 'ou-fac', displayName: 'A Facility', level: 5, parent: { id: 'ou-ward' }, path: '/x/ou-fac' },
       ],
     }));
 
     const units = await new Dhis2Adapter(config).fetchOrgUnits();
-    expect(units.map((unit) => unit.level)).toEqual(['COUNTRY', 'STATE', 'FACILITY']);
-    expect(units[1].parentId).toBe('root');
-    expect(units[2].centroid).toEqual({ lon: 7.5, lat: 9.1 });
+    expect(units.map((unit) => unit.level)).toEqual(['STATE', 'LGA', 'FACILITY', 'FACILITY']);
+    expect(units[1].parentId).toBe('ou-state');
+    expect(units[2].centroid).toEqual({ lon: 11.08, lat: 10.1 });
+  });
+
+  it('honours an explicit level map for a differently-shaped instance', async () => {
+    vi.stubEnv('DHIS2_LEVEL_MAP', '1:COUNTRY,2:STATE,3:LGA,4:FACILITY');
+    mockFetch(() => ({
+      organisationUnits: [
+        { id: 'root', displayName: 'Nigeria', level: 1, path: '/root' },
+        { id: 'ou-state', displayName: 'A State', level: 2, parent: { id: 'root' }, path: '/root/ou-state' },
+        { id: 'ou-lga', displayName: 'An LGA', level: 3, parent: { id: 'ou-state' }, path: '/a/ou-lga' },
+        { id: 'too-deep', displayName: 'Sub-unit', level: 5, path: '/a/b/c/too-deep' },
+      ],
+    }));
+
+    const units = await new Dhis2Adapter(config).fetchOrgUnits();
+    expect(units.map((unit) => unit.level)).toEqual(['COUNTRY', 'STATE', 'LGA']);
+    // Level 5 is beyond the configured map and is not imported as a guess.
     expect(units.some((unit) => unit.id === 'too-deep')).toBe(false);
+  });
+
+  it('rejects a malformed level map rather than importing a wrong hierarchy', async () => {
+    vi.stubEnv('DHIS2_LEVEL_MAP', '1:PROVINCE');
+    mockFetch(() => ({ organisationUnits: [] }));
+    await expect(new Dhis2Adapter(config).fetchOrgUnits()).rejects.toThrow(/DHIS2_LEVEL_MAP/);
   });
 
   it('refuses to synchronise when no indicator is mapped, instead of returning nothing', async () => {
     mockFetch(() => ({}));
     const adapter = new Dhis2Adapter(config);
+    const unmapped = INDICATORS.map((indicator) => ({
+      ...indicator,
+      source: { ...indicator.source, dx: null },
+    }));
     await expect(
-      adapter.fetchObservations({ orgUnits, indicators: INDICATORS, periods: periodRange('2026Q2', 2) }),
+      adapter.fetchObservations({ orgUnits, indicators: unmapped, periods: periodRange('2026Q2', 2) }),
     ).rejects.toBeInstanceOf(Dhis2Error);
   });
 
@@ -190,5 +220,43 @@ describe('Dhis2Adapter', () => {
     expect(records.find((record) => record.orgUnitId === 'fac-a')!.reported).toBe(true);
     expect(records.find((record) => record.orgUnitId === 'fac-b')!.reported).toBe(false);
     expect(records.every((record) => record.expected)).toBe(true);
+  });
+});
+
+describe('bundled geography', () => {
+  it('ships Gombe State boundaries wound the way d3-geo needs', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const { geoMercator, geoPath } = await import('d3-geo');
+
+    const collection = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'public/geo/gombe-lgas.geojson'), 'utf8'),
+    );
+    expect(collection.features).toHaveLength(11);
+
+    // d3-geo reads polygons spherically and expects clockwise exterior rings —
+    // the opposite of the GeoJSON specification. Data wound the other way
+    // describes the whole globe minus the intended area, which collapses the
+    // fitted scale to world level. A realistic scale is the check that the
+    // shapes will actually render.
+    const projection = geoMercator().fitExtent(
+      [
+        [16, 16],
+        [704, 504],
+      ],
+      collection,
+    );
+    expect(projection.scale()).toBeGreaterThan(5000);
+
+    const path = geoPath(projection);
+    for (const feature of collection.features) {
+      const [[x0, y0], [x1, y1]] = path.bounds(feature);
+      // No single LGA may span the whole canvas.
+      expect(x1 - x0).toBeLessThan(600);
+      expect(y1 - y0).toBeLessThan(480);
+      expect(x1 - x0).toBeGreaterThan(5);
+      expect(y1).toBeGreaterThan(y0);
+      expect(path(feature)).toBeTruthy();
+    }
   });
 });

@@ -4,6 +4,8 @@ import { buildDemoGeography } from '@/data/sources/demo/geography';
 import { hashSeed, mulberry32 } from '@/data/sources/demo/random';
 import { INDICATORS, DATASETS } from '@/config/indicators';
 import { periodRange } from '@/core/model/periods';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const periods = periodRange('2026Q2', 12);
 
@@ -33,6 +35,34 @@ describe('demo geography', () => {
     expect(geography.all.some((unit) => unit.level === 'COUNTRY')).toBe(false);
   });
 
+  it('uses the eleven real LGAs of Gombe State', () => {
+    const geography = buildDemoGeography();
+    expect(geography.lgas).toHaveLength(11);
+    expect(geography.lgas.map((unit) => unit.name).sort()).toEqual([
+      'Akko',
+      'Balanga',
+      'Billiri',
+      'Dukku',
+      'Funakaye',
+      'Gombe',
+      'Kaltungo',
+      'Kwami',
+      'Nafada',
+      'Shongom',
+      'Yamaltu/Deba',
+    ]);
+  });
+
+  it('gives every LGA an id that matches the shipped boundary file', () => {
+    const boundaries = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'public/geo/gombe-lgas.geojson'), 'utf8'),
+    ) as { features: Array<{ properties: { orgUnitId: string } }> };
+    const boundaryIds = new Set(boundaries.features.map((f) => f.properties.orgUnitId));
+    for (const lga of buildDemoGeography().lgas) {
+      expect(boundaryIds.has(lga.id)).toBe(true);
+    }
+  });
+
   it('gives every unit a materialised path back to the root', () => {
     const geography = buildDemoGeography();
     for (const unit of geography.all) {
@@ -41,11 +71,17 @@ describe('demo geography', () => {
     }
   });
 
-  it('uses fictional names so synthetic figures cannot be read as real places', () => {
-    const names = buildDemoGeography().all.map((unit) => unit.name.toLowerCase());
-    expect(names.some((name) => name.includes('demo'))).toBe(true);
-    for (const real of ['bauchi', 'sokoto', 'kano', 'lagos', 'kaduna']) {
-      expect(names.some((name) => name.includes(real))).toBe(false);
+  it('does not name individual real health facilities', () => {
+    // Real administrative geography is used deliberately, and the figures on it
+    // are labelled DEMO throughout. Facilities are the exception: naming a real
+    // service point and attaching an invented score to it would make a claim
+    // about an identifiable place, so facility names are constructed.
+    const facilities = buildDemoGeography().facilities;
+    expect(facilities.length).toBeGreaterThan(50);
+    for (const facility of facilities) {
+      expect(facility.name).toMatch(
+        /(General Hospital|Primary Health Centre|Comprehensive Health Centre|Maternity Centre|Health Post|Cottage Hospital)$/,
+      );
     }
   });
 });

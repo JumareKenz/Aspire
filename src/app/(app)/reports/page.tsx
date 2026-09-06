@@ -51,7 +51,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <div className="mt-auto flex items-center gap-3 pt-4">
                 <Link
                   href={href}
-                  className="inline-flex h-8 items-center rounded-[var(--radius-md)] bg-[var(--brand-600)] px-3 text-[12px] font-medium text-white transition-colors hover:bg-[var(--brand-700)]"
+                  className="inline-flex h-8 items-center rounded-[var(--radius-md)] bg-[var(--brand-action)] px-3 text-[12px] font-medium text-[var(--brand-action-fg)] transition-colors hover:bg-[var(--brand-action-hover)]"
                 >
                   Generate
                 </Link>

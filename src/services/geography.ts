@@ -25,6 +25,12 @@ import { round } from '@/core/analytics/stats';
  */
 export type BoundaryMode = 'GEOJSON' | 'SCHEMATIC';
 
+/**
+ * Boundaries bundled with the platform: the eleven LGAs of Gombe State, from
+ * geoBoundaries gbOpen NGA ADM2 (source GRID3), CC BY 4.0.
+ */
+const DEFAULT_BOUNDARIES = 'public/geo/gombe-lgas.geojson';
+
 export interface MapUnit {
   orgUnitId: string;
   name: string;
@@ -38,6 +44,12 @@ export interface MapUnit {
   /** Projected centre in SVG coordinates. */
   cx: number;
   cy: number;
+  /**
+   * Rendered area of the shape in square pixels. The map uses it to decide
+   * whether a label fits inside its own polygon; small units get a leader line
+   * rather than text spilling across their neighbours.
+   */
+  area: number;
 }
 
 export interface MapData {
@@ -65,25 +77,72 @@ interface BoundaryFeature {
  */
 let boundaryCache: { features: BoundaryFeature[] | null } | null = null;
 
+/**
+ * Ensures rings wind the way d3-geo expects.
+ *
+ * RFC 7946 specifies counter-clockwise exterior rings; d3-geo reads polygons
+ * spherically and expects them clockwise. Specification-compliant data
+ * therefore renders in d3 as the whole globe *minus* the intended area — the
+ * shape floods the canvas and collapses the fitted projection scale.
+ *
+ * The bundled file is already stored in d3's order, so this normally changes
+ * nothing. It runs anyway because an operator supplying their own boundaries
+ * through ASPIRE_BOUNDARIES_PATH should not have to know this trap exists.
+ */
+function ringArea(ring: number[][]): number {
+  let total = 0;
+  for (let i = 0, n = ring.length; i < n; i += 1) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[(i + 1) % n];
+    total += x1 * y2 - x2 * y1;
+  }
+  return total / 2;
+}
+
+function rewindRings(rings: number[][][]): number[][][] {
+  return rings.map((ring, index) => {
+    // Exterior ring clockwise (negative planar area); holes counter-clockwise.
+    const wantNegative = index === 0;
+    return (ringArea(ring) < 0) === wantNegative ? ring : [...ring].reverse();
+  });
+}
+
+function normaliseWinding(features: BoundaryFeature[]): BoundaryFeature[] {
+  for (const feature of features) {
+    const geometry = feature.geometry as unknown as {
+      type: string;
+      coordinates: number[][][] | number[][][][];
+    };
+    if (geometry.type === 'Polygon') {
+      geometry.coordinates = rewindRings(geometry.coordinates as number[][][]);
+    } else if (geometry.type === 'MultiPolygon') {
+      geometry.coordinates = (geometry.coordinates as number[][][][]).map(rewindRings);
+    }
+  }
+  return features;
+}
+
 function loadBoundaries(): BoundaryFeature[] | null {
   if (boundaryCache) return boundaryCache.features;
 
-  const configured = process.env.ASPIRE_BOUNDARIES_PATH;
-  if (!configured) {
-    boundaryCache = { features: null };
-    return null;
-  }
-
+  // Gombe State LGA boundaries ship with the platform, so the map draws real
+  // geography out of the box. ASPIRE_BOUNDARIES_PATH overrides this for another
+  // state or a national deployment.
+  const configured = process.env.ASPIRE_BOUNDARIES_PATH ?? DEFAULT_BOUNDARIES;
   const path = resolve(process.cwd(), configured);
   if (!existsSync(path)) {
-    console.warn(`[geography] ASPIRE_BOUNDARIES_PATH is set but ${path} does not exist. Using the schematic layout.`);
+    if (process.env.ASPIRE_BOUNDARIES_PATH) {
+      console.warn(
+        `[geography] ASPIRE_BOUNDARIES_PATH is set but ${path} does not exist. Using the schematic layout.`,
+      );
+    }
     boundaryCache = { features: null };
     return null;
   }
 
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as { features?: BoundaryFeature[] };
-    boundaryCache = { features: parsed.features ?? null };
+    boundaryCache = { features: parsed.features ? normaliseWinding(parsed.features) : null };
   } catch (error) {
     console.warn(
       `[geography] Could not read boundaries from ${path}: ${
@@ -116,7 +175,13 @@ export function getMapData(orgUnitId: string, periodId: string): MapData {
   const boundaries = loadBoundaries();
   const positioned = children.filter((child) => child.centroid !== null);
 
-  const build = (child: (typeof children)[number], cx: number, cy: number, path: string | null): MapUnit => {
+  const build = (
+    child: (typeof children)[number],
+    cx: number,
+    cy: number,
+    path: string | null,
+    area = 0,
+  ): MapUnit => {
     const card = cardById.get(child.id);
     const prior = previous.get(child.id);
     const changePoints =
@@ -134,6 +199,7 @@ export function getMapData(orgUnitId: string, periodId: string): MapData {
       path,
       cx,
       cy,
+      area,
     };
   };
 
@@ -168,8 +234,9 @@ export function getMapData(orgUnitId: string, periodId: string): MapData {
         width: WIDTH,
         height: HEIGHT,
         units: relevant.map((entry) => {
-          const [cx, cy] = pathBuilder.centroid(entry.feature as unknown as GeoPermissibleObjects);
-          return build(entry.child, cx, cy, pathBuilder(entry.feature as unknown as GeoPermissibleObjects));
+          const shape = entry.feature as unknown as GeoPermissibleObjects;
+          const [cx, cy] = pathBuilder.centroid(shape);
+          return build(entry.child, cx, cy, pathBuilder(shape), pathBuilder.area(shape));
         }),
         note: 'Administrative boundaries as configured for this installation.',
       };

@@ -28,6 +28,9 @@ const SEQUENTIAL = [
   'var(--viz-seq-6)',
 ];
 
+/** Below this rendered area a polygon cannot hold its own label legibly. */
+const MIN_LABEL_AREA = 2600;
+
 const STATUS_FILL: Record<MapUnit['status'], string> = {
   ON_TRACK: 'var(--status-fill-positive)',
   WATCH: 'var(--status-fill-warning)',
@@ -146,9 +149,8 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
         >
           {data.units.map((unit) => {
             const active = selectedId === unit.orgUnitId || hoveredId === unit.orgUnitId;
-            const label = `${unit.name}: ${
-              valueFor(unit, metric) === null ? 'no value' : valueFor(unit, metric)
-            }`;
+            const value = valueFor(unit, metric);
+            const label = `${unit.name}: ${value === null ? 'no value' : value}`;
             return (
               <g
                 key={unit.orgUnitId}
@@ -173,7 +175,7 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
                     fill={fillFor(unit)}
                     stroke="var(--viz-surface)"
                     strokeWidth={active ? 2.5 : 1}
-                    opacity={active ? 1 : 0.92}
+                    opacity={active ? 1 : 0.94}
                   />
                 ) : (
                   <circle
@@ -186,29 +188,81 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
                     className="transition-[r] duration-150"
                   />
                 )}
-                {data.mode === 'SCHEMATIC' ? (
-                  <text
-                    x={unit.cx}
-                    y={unit.cy + 4}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fontWeight={600}
-                    fill="#ffffff"
-                    className="numeric pointer-events-none"
-                  >
-                    {unit.score === null ? '—' : Math.round(unit.score)}
-                  </text>
-                ) : null}
-                <text
-                  x={unit.cx}
-                  y={unit.cy + (data.mode === 'SCHEMATIC' ? radius + 15 : 16)}
-                  textAnchor="middle"
-                  fontSize={10}
-                  fill="var(--text-secondary)"
-                  className="pointer-events-none"
-                >
-                  {unit.name}
-                </text>
+              </g>
+            );
+          })}
+
+          {/*
+            Labels are drawn in a second pass, above every fill, so a neighbour
+            painted later cannot cover them. White text with a dark halo reads
+            on all four status colours and on every step of the sequential ramp,
+            which plain dark text does not.
+          */}
+          {data.units.map((unit) => {
+            const value = valueFor(unit, metric);
+            const roomy = unit.path === null || unit.area > MIN_LABEL_AREA;
+            return (
+              <g key={`label-${unit.orgUnitId}`} className="pointer-events-none">
+                {roomy ? (
+                  <>
+                    <text
+                      x={unit.cx}
+                      y={unit.cy}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fontWeight={600}
+                      fill="#ffffff"
+                      stroke="rgb(20 24 20 / 0.55)"
+                      strokeWidth={2.6}
+                      paintOrder="stroke"
+                      strokeLinejoin="round"
+                    >
+                      {unit.name}
+                    </text>
+                    <text
+                      x={unit.cx}
+                      y={unit.cy + 13}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fontWeight={700}
+                      fill="#ffffff"
+                      stroke="rgb(20 24 20 / 0.55)"
+                      strokeWidth={2.6}
+                      paintOrder="stroke"
+                      strokeLinejoin="round"
+                      className="numeric"
+                    >
+                      {value === null ? '—' : value}
+                    </text>
+                  </>
+                ) : (
+                  // Too small to hold its own label: a leader line carries the
+                  // name outside the shape instead of overprinting a neighbour.
+                  <>
+                    <line
+                      x1={unit.cx}
+                      y1={unit.cy}
+                      x2={unit.cx - 34}
+                      y2={unit.cy - 22}
+                      stroke="var(--text-tertiary)"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={unit.cx - 37}
+                      y={unit.cy - 24}
+                      textAnchor="end"
+                      fontSize={10}
+                      fontWeight={600}
+                      fill="var(--text-primary)"
+                      stroke="var(--viz-surface)"
+                      strokeWidth={2.4}
+                      paintOrder="stroke"
+                      strokeLinejoin="round"
+                    >
+                      {unit.name} {value === null ? '—' : value}
+                    </text>
+                  </>
+                )}
               </g>
             );
           })}

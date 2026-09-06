@@ -10,7 +10,7 @@ export default function NotFound() {
       </p>
       <Link
         href="/overview"
-        className="mt-5 inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[var(--brand-600)] px-3.5 text-[13px] font-medium text-white"
+        className="mt-5 inline-flex h-9 items-center rounded-[var(--radius-md)] bg-[var(--brand-action)] px-3.5 text-[13px] font-medium text-[var(--brand-action-fg)]"
       >
         Go to Overview
       </Link>

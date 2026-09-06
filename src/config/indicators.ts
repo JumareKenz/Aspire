@@ -5,9 +5,13 @@ import type { IndicatorDefinition } from '@/core/registry/types';
  *
  * Every field here is configuration. In particular:
  *
- * - `source.dx` is **null** for every indicator because no DHIS2 metadata has
- *   been supplied. Inventing UIDs would produce a system that silently queries
- *   nothing. Mappings are set in Admin → Indicators, or by editing this file.
+ * - `source.dx` carries a real DHIS2 UID where the target instance actually
+ *   defines that indicator, and `null` where it does not. A null mapping is
+ *   skipped at synchronisation and reported in Admin, so the gap is visible
+ *   rather than silently returning nothing. The mapped UIDs below come from the
+ *   Gombe State instance's own metadata (8 indicators, 187 data elements);
+ *   the remainder need either a DHIS2 indicator defined for them or a mapping
+ *   onto the underlying data elements, which is set in Admin → Indicators.
  * - `defaultTarget` values are placeholders pending the official ASPIRE-GAC
  *   targets, and are overridden per org unit and period by the targets table.
  */
@@ -18,6 +22,11 @@ const percentQuality = {
   numeratorMustNotExceedDenominator: true,
   maxPeriodChangePct: 60,
 } as const;
+
+/** A mapping onto a DHIS2 indicator UID on the configured instance. */
+function dhis2(dx: string, datasetId = 'ds-srhr-core'): IndicatorDefinition['source'] {
+  return { system: 'DHIS2', dx, datasetId, numeratorDx: null, denominatorDx: null };
+}
 
 function percentIndicator(
   init: Pick<
@@ -43,11 +52,13 @@ function percentIndicator(
 export const INDICATORS: IndicatorDefinition[] = [
   percentIndicator({
     id: 'anc4-coverage',
-    name: 'Antenatal care, four or more visits',
-    shortName: 'ANC4 coverage',
-    description: 'Pregnant women completing at least four antenatal contacts, as a share of expected pregnancies.',
+    name: 'Antenatal care, early first contact',
+    shortName: 'ANC early contact',
+    description:
+      'Pregnant women reporting for antenatal care before 20 weeks, as a share of expected pregnancies.',
     domainId: 'maternal-health',
     defaultTarget: 75,
+    source: dhis2('lHBIJsXmN6N'),
   }),
   percentIndicator({
     id: 'skilled-birth-attendance',
@@ -56,15 +67,47 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Deliveries attended by a skilled health worker, as a share of expected deliveries.',
     domainId: 'maternal-health',
     defaultTarget: 80,
+    source: dhis2('DD480KjzWyI'),
   }),
   percentIndicator({
     id: 'pnc-48h',
-    name: 'Postnatal care within 48 hours',
-    shortName: 'PNC within 48h',
-    description: 'Women receiving a postnatal contact within 48 hours of delivery.',
+    name: 'Postnatal care within three days',
+    shortName: 'PNC within 3 days',
+    description: 'Women attending a postnatal clinic visit within three days of delivery.',
     domainId: 'maternal-health',
     defaultTarget: 70,
+    source: dhis2('NbBhtRKOcNG'),
   }),
+  {
+    ...percentIndicator({
+      id: 'partograph-monitoring',
+      name: 'Deliveries monitored with a partograph',
+      shortName: 'Partograph use',
+      description:
+        'Deliveries monitored using a partograph, a proxy for quality of intrapartum care.',
+      domainId: 'maternal-health',
+      defaultTarget: 85,
+      source: dhis2('GatsIlJUfmd'),
+    }),
+  },
+
+  {
+    id: 'still-birth-rate',
+    name: 'Still birth rate',
+    shortName: 'Still births',
+    description: 'Still births per 1,000 total births. A lower rate is better.',
+    domainId: 'maternal-health',
+    unit: 'RATE_PER_1000',
+    directionality: 'LOWER_IS_BETTER',
+    frequency: 'QUARTERLY',
+    lowestLevel: 'FACILITY',
+    disaggregations: [],
+    defaultTarget: 10,
+    scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
+    quality: { min: 0, max: 200, numeratorMustNotExceedDenominator: false, maxPeriodChangePct: 80 },
+    source: dhis2('wBHe2MdXjPA'),
+    active: true,
+  },
 
   percentIndicator({
     id: 'mcpr',

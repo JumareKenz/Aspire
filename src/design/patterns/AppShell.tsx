@@ -77,13 +77,18 @@ export function AppShell({
         </button>
 
         <Link href="/overview" className="flex shrink-0 items-center gap-2.5">
-          <Logo />
-          <span className="hidden text-[13px] font-semibold whitespace-nowrap tracking-[-0.011em] sm:block">
-            ASPIRE-GAC
-            {/* The descriptor is the first thing to go: the mark and the name
-                identify the product on their own once space is tight. */}
-            <span className="ml-1.5 hidden font-normal text-[var(--text-tertiary)] xl:inline">
-              SRHR Intelligence
+          <Logo size={24} />
+          <span className="hidden whitespace-nowrap sm:block">
+            <span className="block text-[13px] leading-tight font-semibold tracking-[-0.011em]">
+              ASPIRE-GAC
+              {/* The descriptor is the first thing to go once space is tight;
+                  the mark and the name identify the product on their own. */}
+              <span className="ml-1.5 hidden font-normal text-[var(--text-tertiary)] xl:inline">
+                SRHR Intelligence
+              </span>
+            </span>
+            <span className="hidden text-[10px] leading-tight text-[var(--text-tertiary)] lg:block">
+              HIVA by Hayok Medicare
             </span>
           </span>
         </Link>

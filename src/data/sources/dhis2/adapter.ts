@@ -6,16 +6,54 @@ import type {
   Period,
   ReportingRecord,
 } from '@/core/model/types';
-import { ORG_LEVEL_DEPTH } from '@/core/model/types';
 import type { ConnectionResult, FetchRequest, SourceAdapter } from '../port';
 import { Dhis2Client, Dhis2Error, type Dhis2Config } from './client';
 
-const LEVEL_BY_DEPTH: Record<number, OrgLevel> = {
-  1: 'COUNTRY',
-  2: 'STATE',
-  3: 'LGA',
+/**
+ * DHIS2 numeric levels do not have a fixed meaning — they depend on how the
+ * instance was built. A national deployment usually roots at the country; a
+ * state deployment roots at the state, so its level 1 *is* the state.
+ *
+ * The Gombe State instance this platform targets is organised
+ * State → LGA → Ward → Community → Facility, so it is the default here.
+ * `DHIS2_LEVEL_MAP` overrides it for any other shape, e.g.
+ * `DHIS2_LEVEL_MAP=1:COUNTRY,2:STATE,3:LGA,4:FACILITY` for a national instance.
+ *
+ * Getting this wrong is not a cosmetic error: it would file every LGA as a
+ * state and every ward as a facility, and every aggregate above them would be
+ * computed over the wrong set of units.
+ */
+const DEFAULT_LEVEL_MAP: Record<number, OrgLevel> = {
+  1: 'STATE',
+  2: 'LGA',
+  // Wards and communities sit between LGA and facility in this hierarchy.
+  // The canonical model has no tier for them, so they are folded into the
+  // reporting level below the LGA rather than being silently dropped.
+  3: 'FACILITY',
   4: 'FACILITY',
+  5: 'FACILITY',
 };
+
+function readLevelMap(): Record<number, OrgLevel> {
+  const configured = process.env.DHIS2_LEVEL_MAP;
+  if (!configured) return DEFAULT_LEVEL_MAP;
+
+  const valid = new Set<OrgLevel>(['COUNTRY', 'STATE', 'LGA', 'FACILITY']);
+  const map: Record<number, OrgLevel> = {};
+  for (const pair of configured.split(',')) {
+    const [rawLevel, rawName] = pair.split(':').map((part) => part.trim());
+    const level = Number(rawLevel);
+    const name = rawName?.toUpperCase() as OrgLevel | undefined;
+    if (!Number.isInteger(level) || level < 1 || !name || !valid.has(name)) {
+      throw new Error(
+        `DHIS2_LEVEL_MAP is malformed near "${pair}". Expected entries like "1:STATE,2:LGA,3:FACILITY".`,
+      );
+    }
+    map[level] = name;
+  }
+  if (Object.keys(map).length === 0) return DEFAULT_LEVEL_MAP;
+  return map;
+}
 
 function periodTypeToDhis2(period: Period): string {
   return period.id;
@@ -68,9 +106,11 @@ export class Dhis2Adapter implements SourceAdapter {
   }
 
   async fetchOrgUnits(): Promise<OrgUnit[]> {
+    const levelMap = readLevelMap();
+    const deepest = Math.max(...Object.keys(levelMap).map(Number));
     const units = await this.client.organisationUnits();
     return units
-      .filter((unit) => unit.level <= 4)
+      .filter((unit) => unit.level <= deepest)
       .map((unit) => {
         const path = unit.path.split('/').filter(Boolean);
         const centroid =
@@ -84,7 +124,7 @@ export class Dhis2Adapter implements SourceAdapter {
           id: unit.id,
           code: unit.code ?? null,
           name: unit.displayName,
-          level: LEVEL_BY_DEPTH[unit.level] ?? 'FACILITY',
+          level: levelMap[unit.level] ?? 'FACILITY',
           parentId: unit.parent?.id ?? null,
           path,
           centroid,
@@ -120,9 +160,21 @@ export class Dhis2Adapter implements SourceAdapter {
     }
 
     const byDx = new Map(mapped.map((indicator) => [indicator.source.dx as string, indicator]));
-    const roots = request.orgUnits.filter((unit) => unit.level === 'COUNTRY' || unit.parentId === null);
+    const roots = request.orgUnits.filter((unit) => unit.parentId === null);
     const rootIds = (roots.length > 0 ? roots : request.orgUnits).map((unit) => unit.id);
-    const levels = [...new Set(request.orgUnits.map((unit) => ORG_LEVEL_DEPTH[unit.level]))].sort();
+
+    // `LEVEL-n` in an analytics request means DHIS2's *own* level number, which
+    // is not the canonical depth. Invert the configured map to get back to the
+    // numbers this instance actually uses, and query each one once.
+    const levelMap = readLevelMap();
+    const wanted = new Set(request.orgUnits.map((unit) => unit.level));
+    const levels = [
+      ...new Set(
+        Object.entries(levelMap)
+          .filter(([, canonical]) => wanted.has(canonical))
+          .map(([dhis2Level]) => Number(dhis2Level)),
+      ),
+    ].sort((a, b) => a - b);
 
     const observations: Observation[] = [];
     for (const level of levels) {
