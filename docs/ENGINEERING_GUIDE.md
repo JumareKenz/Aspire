@@ -43,7 +43,7 @@ demo generator ─┘
 |---|---|---|
 | `src/core/**` | Domain engines: scoring, analytics, quality, forecast, insight | **Pure.** No I/O, no framework, no network. Everything is passed in. |
 | `src/config/**` | Domains, indicator registry, methodology | Configuration that seeds the database. The database is authoritative once seeded. |
-| `src/data/**` | Store, repositories, source adapters, sync | The only place that talks to SQLite or DHIS2 |
+| `src/data/**` | Store, repositories, source adapters, sync | The only place that talks to PostgreSQL or DHIS2 |
 | `src/services/**` | Composition of store + engines into page payloads | No React |
 | `src/intelligence/**` | The governed question pipeline and its evaluation set | The model never computes |
 | `src/auth/**` | Sessions, RBAC, geographic scope | |
@@ -57,38 +57,42 @@ demo generator ─┘
 **1. `src/core` stays pure.** If an engine needs data, it is a parameter. This is
 what makes the scoring, quality and forecast logic testable without a database.
 
-**2. No component talks to DHIS2.** Components consume `/api/*`. The DHIS2
+**2. Repositories are async and are the only database boundary.** Nothing
+outside `src/data` may import `pg` or write SQL. Batch writes go through
+`chunk`/`valuesClause` because PostgreSQL caps a statement at 65535 parameters.
+
+**3. No component talks to DHIS2.** Components consume `/api/*`. The DHIS2
 client runs on the server and its credentials never leave it.
 
-**3. The model never produces a number.** In the Intelligence pipeline a
+**4. The model never produces a number.** In the Intelligence pipeline a
 language model may (a) choose a structured query from a fixed schema restricted
 to real identifiers, and (b) phrase findings the platform already computed and
 validated. It has no data access and no arithmetic role. With no model
 configured the platform answers every question by rules and templates — check
 this still holds after any change to `src/intelligence`.
 
-**4. Performance and data confidence are separate figures.** Never combine them
+**5. Performance and data confidence are separate figures.** Never combine them
 into one number and never let a score be presented without its confidence.
 
-**5. Demo data is always labelled.** The data mode is carried in the model,
+**6. Demo data is always labelled.** The data mode is carried in the model,
 returned by the API, shown in the shell, and stamped on every report and export.
 Never render a synthetic figure without it. The demo dataset sits on *real*
 Gombe State geography — the labelling is what prevents confusion, not fictional
 place names — but facility names are constructed, because naming a real service
 point and attaching an invented score to it makes a claim about a real place.
 
-**6. The methodology is provisional until told otherwise.** Anything derived
+**7. The methodology is provisional until told otherwise.** Anything derived
 from `ASPIRE-SRHR-PROVISIONAL-v0` is badged. See `docs/SCORECARD_METHODOLOGY.md`.
 
-**7. Indicators are configuration.** Never hard-code an indicator id, target or
+**8. Indicators are configuration.** Never hard-code an indicator id, target or
 threshold in a component or an engine.
 
-**8. DHIS2 level numbers are not canonical levels.** They depend on how the
+**9. DHIS2 level numbers are not canonical levels.** They depend on how the
 instance was built. The target instance is state-rooted
 (State → LGA → Ward → Community → Facility); `DHIS2_LEVEL_MAP` overrides it.
 Never assume a national hierarchy.
 
-**9. Boundary rings must wind for d3-geo, not RFC 7946.** d3 reads polygons
+**10. Boundary rings must wind for d3-geo, not RFC 7946.** d3 reads polygons
 spherically and wants exterior rings *clockwise* — the opposite of the GeoJSON
 specification. Wrongly-wound data renders as the whole globe minus the intended
 shape. `normaliseWinding` in `src/services/geography.ts` handles operator-supplied

@@ -16,7 +16,7 @@
 └───────────────────────┬──────────────────────────────────────────────────┘
                         │  repositories
 ┌───────────────────────▼──────────────────────────────────────────────────┐
-│  SQLite store (better-sqlite3)                                           │
+│  PostgreSQL store (pg)                                                   │
 └───────────────────────┬──────────────────────────────────────────────────┘
                         │
 ┌───────────────────────▼──────────────────────────────────────────────────┐
@@ -61,8 +61,11 @@ a change to the product. The demo generator and the DHIS2 adapter are peers.
 and hands the result to an engine. When you find arithmetic in `src/services`,
 it belongs in `src/core`.
 
-**The store is an implementation detail.** Repositories are the boundary.
-Replacing SQLite with Postgres is a driver change behind those functions.
+**The store is an implementation detail.** Repositories are the boundary. The
+platform was originally built on SQLite and moved to PostgreSQL by rewriting
+only `src/data/db/client.ts` and the eight repository modules — no engine, no
+service and no component changed its logic. That is the property the boundary
+exists to provide.
 
 ## Stack, and why
 
@@ -70,7 +73,7 @@ Replacing SQLite with Postgres is a driver change behind those functions.
 |---|---|
 | Next.js 16 App Router, React 19 | Server components keep aggregation off the browser; one deployable |
 | TypeScript, `strict` | The domain has many nullable figures; the type system is doing real work here |
-| SQLite via `better-sqlite3` | Zero infrastructure, synchronous, fast at these volumes. Behind repositories |
+| PostgreSQL via `pg` | Runs anywhere the platform does, including serverless. Behind repositories, so the engine is an implementation detail |
 | Tailwind v4 + hand-built primitives | Restraint requires owning the components |
 | Hand-built SVG charts | Every chart answers a question; chart libraries ship weight and decorative defaults |
 | `d3-geo` for projection only | No tile server, no network dependency in the map |
@@ -95,11 +98,27 @@ Replacing SQLite with Postgres is a driver change behind those functions.
 - **Drill-down is fetched on demand.** A scorecard renders fifteen indicators;
   only the one a user opens loads its history, contributors and forecast.
 
+## Running serverless
+
+The platform runs on Vercel Functions as well as on a long-lived server. Three
+things make that work:
+
+- **A connection pool cached on `globalThis`.** Fluid Compute reuses instances,
+  so a warm pool is reused rather than reconnected per request. `max` stays
+  small because instances are numerous.
+- **Idempotent schema application.** Every statement in `schema.sql` is
+  `IF NOT EXISTS`, applied once per process on first use. There is no separate
+  migration step to forget on a platform with no deploy hook.
+- **A Postgres advisory lock around first-run setup.** Many instances can cold
+  start at once; the lock means exactly one seeds the registry, accounts and
+  demo dataset while the others wait and then observe the finished state.
+
 ## Failure behaviour
 
 | Failure | Behaviour |
 |---|---|
 | DHIS2 unreachable | Sync run recorded as FAILED with the reason; the store keeps the last good data; Admin shows it; pages continue to serve |
+| Database unreachable | Requests fail with a human-readable message; a failed bootstrap is not cached, so the next request retries rather than the instance staying poisoned for its lifetime |
 | No indicators mapped to DHIS2 | Sync refuses with a specific message rather than importing nothing silently |
 | Empty analytics cell | Treated as absent, never as a reported zero |
 | Coverage below the methodology minimum | No score published; the page explains why instead of showing a misleading number |

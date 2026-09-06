@@ -1,14 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { createSchema, dropSchema, isolatedSchema } from '../helpers/db';
 
-// A full end-to-end suite: bootstrap a fresh database, generate the demo
-// dataset, synchronise it, then ask the platform questions with known answers.
-const dir = mkdtempSync(join(tmpdir(), 'aspire-pipeline-'));
-process.env.ASPIRE_DB_PATH = join(dir, 'test.db');
-
-const { closeDb } = await import('@/data/db/client');
+const schema = isolatedSchema();
 const { ensureBootstrapped } = await import('@/data/bootstrap');
 const { runAllCases } = await import('@/intelligence/evals/run');
 const { EVAL_CASES } = await import('@/intelligence/evals/cases');
@@ -26,32 +19,32 @@ let rootId: string;
 let periodId: string;
 
 beforeAll(async () => {
+  await createSchema(schema);
   await ensureBootstrapped();
-  const users = listUsers();
+  const users = await listUsers();
   analyst = users.find((user) => user.role === 'ANALYST')!;
   // A user scoped to a single LGA, to check that scope is enforced inside the
   // pipeline and not only at the HTTP boundary.
   scopedUser = { ...analyst, id: `${analyst.id}-scoped`, scope: ['lga-balanga'] };
-  rootId = getRootOrgUnit()!.id;
+  rootId = (await getRootOrgUnit())!.id;
   periodId = latestCompletePeriodId();
 }, 120_000);
 
-afterAll(() => {
-  closeDb();
-  rmSync(dir, { recursive: true, force: true });
+afterAll(async () => {
+  await dropSchema(schema);
 });
 
 describe('demo dataset', () => {
-  it('produces a scorable state with all indicators covered', () => {
-    const card = getScorecard(rootId, periodId);
+  it('produces a scorable state with all indicators covered', async () => {
+    const card = await getScorecard(rootId, periodId);
     expect(card).not.toBeNull();
     expect(card!.overallScore).not.toBeNull();
     expect(card!.coverage).toBe(1);
     expect(card!.domains).toHaveLength(6);
   });
 
-  it('aggregates consistently — an LGA total is built from its facilities', () => {
-    const children = getChildScorecards(rootId, periodId);
+  it('aggregates consistently — an LGA total is built from its facilities', async () => {
+    const children = await getChildScorecards(rootId, periodId);
     expect(children.length).toBeGreaterThan(10);
     for (const child of children) {
       expect(child.overallScore).not.toBeNull();
@@ -60,8 +53,8 @@ describe('demo dataset', () => {
     }
   });
 
-  it('marks the planted low-reporting LGA as low confidence while others stay high', () => {
-    const children = getChildScorecards(rootId, periodId);
+  it('marks the planted low-reporting LGA as low confidence while others stay high', async () => {
+    const children = await getChildScorecards(rootId, periodId);
     const weak = children.find((child) => child.orgUnitId === 'lga-funakaye')!;
     const others = children.filter((child) => child.orgUnitId !== 'lga-funakaye');
     expect(weak.dataConfidence.band).toBe('LOW');
@@ -69,10 +62,10 @@ describe('demo dataset', () => {
     expect(others.every((child) => child.dataConfidence.band !== 'LOW')).toBe(true);
   });
 
-  it('keeps performance and data confidence independent', () => {
+  it('keeps performance and data confidence independent', async () => {
     // The low-confidence LGA is not the lowest performer: if the two measures
     // were entangled, it would be.
-    const children = getChildScorecards(rootId, periodId);
+    const children = await getChildScorecards(rootId, periodId);
     const lowest = [...children].sort((a, b) => (a.overallScore ?? 0) - (b.overallScore ?? 0))[0];
     expect(lowest.orgUnitId).not.toBe('lga-funakaye');
   });
@@ -95,7 +88,7 @@ describe('pipeline guarantees', () => {
       orgUnitId: rootId,
       periodId,
     });
-    const card = getScorecard(rootId, periodId)!;
+    const card = (await getScorecard(rootId, periodId))!;
     expect(answer.result!.headline).toContain(String(card.overallScore));
   });
 

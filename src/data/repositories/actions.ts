@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../db/client';
+import { execute, query, queryOne } from '../db/client';
 import type { Severity } from '@/core/quality/types';
 
 /**
@@ -44,11 +44,16 @@ interface Row {
   status: string;
   assignee_id: string | null;
   created_by: string;
-  created_at: string;
-  updated_at: string;
-  due_date: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+  due_date: Date | string | null;
   outcome: string | null;
   baseline_score: number | null;
+}
+
+function iso(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return typeof value === 'string' ? value : value.toISOString();
 }
 
 function toAction(row: Row): ActionItem {
@@ -65,28 +70,28 @@ function toAction(row: Row): ActionItem {
     status: row.status as ActionStatus,
     assigneeId: row.assignee_id,
     createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    dueDate: row.due_date,
+    createdAt: iso(row.created_at) ?? '',
+    updatedAt: iso(row.updated_at) ?? '',
+    dueDate: row.due_date === null ? null : (iso(row.due_date) ?? '').slice(0, 10) || null,
     outcome: row.outcome,
     baselineScore: row.baseline_score,
   };
 }
 
-export type CreateActionInput = Omit<ActionItem, 'id' | 'createdAt' | 'updatedAt' | 'outcome' | 'status'> &
+export type CreateActionInput = Omit<
+  ActionItem,
+  'id' | 'createdAt' | 'updatedAt' | 'outcome' | 'status'
+> &
   Partial<Pick<ActionItem, 'status'>>;
 
-export function createAction(input: CreateActionInput): ActionItem {
+export async function createAction(input: CreateActionInput): Promise<ActionItem> {
   const id = randomUUID();
-  const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO actions (id, title, detail, org_unit_id, indicator_id, period_id, source, source_ref,
-                            priority, status, assignee_id, created_by, created_at, updated_at, due_date,
-                            outcome, baseline_score)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-    )
-    .run(
+  await execute(
+    `INSERT INTO actions (id, title, detail, org_unit_id, indicator_id, period_id, source, source_ref,
+                          priority, status, assignee_id, created_by, created_at, updated_at, due_date,
+                          outcome, baseline_score)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW(),$13,NULL,$14)`,
+    [
       id,
       input.title,
       input.detail,
@@ -99,64 +104,56 @@ export function createAction(input: CreateActionInput): ActionItem {
       input.status ?? 'OPEN',
       input.assigneeId,
       input.createdBy,
-      now,
-      now,
       input.dueDate,
       input.baselineScore,
-    );
-  const created = getAction(id);
+    ],
+  );
+  const created = await getAction(id);
   if (!created) throw new Error('Action creation failed');
   return created;
 }
 
-export function getAction(id: string): ActionItem | null {
-  const row = getDb().prepare('SELECT * FROM actions WHERE id = ?').get(id) as Row | undefined;
+export async function getAction(id: string): Promise<ActionItem | null> {
+  const row = await queryOne<Row>('SELECT * FROM actions WHERE id = $1', [id]);
   return row ? toAction(row) : null;
 }
 
-export function listActions(filter: { orgUnitIds?: string[]; status?: ActionStatus } = {}): ActionItem[] {
+export async function listActions(
+  filter: { orgUnitIds?: string[]; status?: ActionStatus } = {},
+): Promise<ActionItem[]> {
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (filter.orgUnitIds && filter.orgUnitIds.length > 0) {
-    clauses.push(`(org_unit_id IS NULL OR org_unit_id IN (${filter.orgUnitIds.map(() => '?').join(',')}))`);
-    params.push(...filter.orgUnitIds);
+    params.push(filter.orgUnitIds);
+    clauses.push(`(org_unit_id IS NULL OR org_unit_id = ANY($${params.length}))`);
   }
   if (filter.status) {
-    clauses.push('status = ?');
     params.push(filter.status);
+    clauses.push(`status = $${params.length}`);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM actions ${where}
-       ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'INVESTIGATING' THEN 1 WHEN 'IN_PROGRESS' THEN 2
-                            WHEN 'RESOLVED' THEN 3 ELSE 4 END,
-                CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
-                created_at DESC`,
-    )
-    .all(...params) as Row[];
+  const rows = await query<Row>(
+    `SELECT * FROM actions ${where}
+     ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'INVESTIGATING' THEN 1 WHEN 'IN_PROGRESS' THEN 2
+                          WHEN 'RESOLVED' THEN 3 ELSE 4 END,
+              CASE priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
+              created_at DESC`,
+    params,
+  );
   return rows.map(toAction);
 }
 
-export function updateAction(
+export async function updateAction(
   id: string,
   changes: Partial<Pick<ActionItem, 'status' | 'assigneeId' | 'outcome' | 'dueDate' | 'priority'>>,
-): ActionItem | null {
-  const existing = getAction(id);
+): Promise<ActionItem | null> {
+  const existing = await getAction(id);
   if (!existing) return null;
   const merged = { ...existing, ...changes };
-  getDb()
-    .prepare(
-      'UPDATE actions SET status = ?, assignee_id = ?, outcome = ?, due_date = ?, priority = ?, updated_at = ? WHERE id = ?',
-    )
-    .run(
-      merged.status,
-      merged.assigneeId,
-      merged.outcome,
-      merged.dueDate,
-      merged.priority,
-      new Date().toISOString(),
-      id,
-    );
+  await execute(
+    `UPDATE actions SET status = $1, assignee_id = $2, outcome = $3, due_date = $4,
+       priority = $5, updated_at = NOW() WHERE id = $6`,
+    [merged.status, merged.assigneeId, merged.outcome, merged.dueDate, merged.priority, id],
+  );
   return getAction(id);
 }

@@ -33,8 +33,8 @@ const updateSchema = z.object({
 });
 
 export const GET = withUser(async (user) => {
-  const scope = resolveScope(user);
-  return ok(listActions({ orgUnitIds: scope.ids }));
+  const scope = await resolveScope(user);
+  return ok(await listActions({ orgUnitIds: scope.ids }));
 }, 'actions.view');
 
 /**
@@ -46,14 +46,14 @@ export const GET = withUser(async (user) => {
  */
 export const POST = withUser(async (user, request) => {
   const body = createSchema.parse(await request.json());
-  if (body.orgUnitId) assertOrgUnitInScope(user, body.orgUnitId);
+  if (body.orgUnitId) await assertOrgUnitInScope(user, body.orgUnitId);
 
   const baseline =
     body.orgUnitId && body.periodId
-      ? (getScorecard(body.orgUnitId, body.periodId)?.overallScore ?? null)
+      ? ((await getScorecard(body.orgUnitId, body.periodId))?.overallScore ?? null)
       : null;
 
-  const action = createAction({
+  const action = await createAction({
     title: body.title,
     detail: body.detail,
     orgUnitId: body.orgUnitId ?? null,
@@ -68,7 +68,7 @@ export const POST = withUser(async (user, request) => {
     baselineScore: baseline,
   });
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'actions.create',
@@ -80,7 +80,7 @@ export const POST = withUser(async (user, request) => {
 
 export const PATCH = withUser(async (user, request) => {
   const body = updateSchema.parse(await request.json());
-  const updated = updateAction(body.id, {
+  const updated = await updateAction(body.id, {
     status: body.status,
     assigneeId: body.assigneeId,
     outcome: body.outcome,
@@ -89,7 +89,7 @@ export const PATCH = withUser(async (user, request) => {
   });
   if (!updated) throw new ApiError('That action no longer exists.', 404);
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'actions.update',

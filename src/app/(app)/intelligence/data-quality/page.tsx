@@ -31,15 +31,21 @@ export default async function DataQualityPage({
   searchParams: Promise<SearchParams>;
 }) {
   const context = await resolvePageContext(await searchParams);
+  const [children, facilities] = await Promise.all([
+    listChildren(context.orgUnit.id),
+    listDescendants(context.orgUnit.id, 'FACILITY'),
+  ]);
   const scope = [
     context.orgUnit.id,
-    ...listChildren(context.orgUnit.id).map((child) => child.id),
-    ...listDescendants(context.orgUnit.id, 'FACILITY').map((unit) => unit.id),
+    ...children.map((child) => child.id),
+    ...facilities.map((unit) => unit.id),
   ];
-  const findings = listFindings({ orgUnitIds: scope });
+  const [findings, scorecard] = await Promise.all([
+    listFindings({ orgUnitIds: scope }),
+    getScorecard(context.orgUnit.id, context.periodId),
+  ]);
   const open = findings.filter((finding) => finding.status === 'OPEN');
   const counts = rollup(open);
-  const scorecard = getScorecard(context.orgUnit.id, context.periodId);
   const confidence = scorecard?.dataConfidence ?? null;
 
   return (

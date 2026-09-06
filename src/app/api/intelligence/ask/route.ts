@@ -18,7 +18,7 @@ const schema = z.object({
  */
 export const POST = withUser(async (user, request) => {
   const body = schema.parse(await request.json());
-  const scope = resolveScope(user);
+  const scope = await resolveScope(user);
 
   const answer = await answerQuestion(body.question, user, {
     orgUnitId:

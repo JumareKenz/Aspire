@@ -16,7 +16,7 @@ import type { AnalyticalQuery, AnalyticalResult, Finding, ResultRow } from './ty
  * "the AI said 62" and "the scorecard says 62" the same statement rather than
  * two independent claims.
  */
-export function executeQuery(query: AnalyticalQuery): AnalyticalResult {
+export async function executeQuery(query: AnalyticalQuery): Promise<AnalyticalResult> {
   switch (query.kind) {
     case 'RANK_UNITS':
     case 'BELOW_TARGET':
@@ -41,9 +41,8 @@ export function executeQuery(query: AnalyticalQuery): AnalyticalResult {
   }
 }
 
-function basisFor(query: AnalyticalQuery): string {
-  const orgUnit = getOrgUnit(query.orgUnitId);
-  const methodology = getActiveMethodology();
+async function basisFor(query: AnalyticalQuery): Promise<string> {
+  const [orgUnit, methodology] = await Promise.all([getOrgUnit(query.orgUnitId), getActiveMethodology()]);
   return `${orgUnit?.name ?? query.orgUnitId}, ${query.periodId}, scored with ${methodology.version}${
     methodology.status === 'PROVISIONAL' ? ' (provisional)' : ''
   }.`;
@@ -59,22 +58,20 @@ function confidenceCaveats(cards: Array<{ orgUnitName: string; dataConfidence: {
   ];
 }
 
-function rankUnits(query: AnalyticalQuery): AnalyticalResult {
-  const parent = getScorecard(query.orgUnitId, query.periodId);
-  const children = getChildScorecards(query.orgUnitId, query.periodId);
-  const previous = new Map(
-    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)).map((card) => [
-      card.orgUnitId,
-      card,
-    ]),
-  );
+async function rankUnits(query: AnalyticalQuery): Promise<AnalyticalResult> {
+  const [parent, children, priorCards] = await Promise.all([
+    getScorecard(query.orgUnitId, query.periodId),
+    getChildScorecards(query.orgUnitId, query.periodId),
+    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)),
+  ]);
+  const previous = new Map(priorCards.map((card) => [card.orgUnitId, card]));
   const ranked = rankScorecards(children, previous);
 
   let selected = ranked;
   let headline: string;
 
   if (query.kind === 'BELOW_TARGET') {
-    const threshold = getActiveMethodology().statusBands.onTrack;
+    const threshold = (await getActiveMethodology()).statusBands.onTrack;
     selected = ranked.filter((unit) => unit.score !== null && unit.score < threshold);
     headline =
       selected.length === 0
@@ -135,16 +132,18 @@ function rankUnits(query: AnalyticalQuery): AnalyticalResult {
         confidence: unit.dataConfidence,
       },
     })),
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: confidenceCaveats(children.filter((card) => limited.some((u) => u.orgUnitId === card.orgUnitId))),
     href: `/performance?orgUnit=${query.orgUnitId}&period=${query.periodId}`,
   };
 }
 
-function explainChange(query: AnalyticalQuery): AnalyticalResult {
-  const current = getScorecard(query.orgUnitId, query.periodId);
+async function explainChange(query: AnalyticalQuery): Promise<AnalyticalResult> {
   const priorId = previousPeriodId(query.periodId);
-  const prior = getScorecard(query.orgUnitId, priorId);
+  const [current, prior] = await Promise.all([
+    getScorecard(query.orgUnitId, query.periodId),
+    getScorecard(query.orgUnitId, priorId),
+  ]);
 
   if (!current || !prior || current.overallScore === null || prior.overallScore === null) {
     return {
@@ -153,7 +152,7 @@ function explainChange(query: AnalyticalQuery): AnalyticalResult {
       findings: [],
       columns: [],
       rows: [],
-      basis: basisFor(query),
+      basis: await basisFor(query),
       caveats: ['A scored previous period is required before change can be attributed.'],
       href: null,
     };
@@ -219,17 +218,17 @@ function explainChange(query: AnalyticalQuery): AnalyticalResult {
         share: `${Math.round(entry.share * 100)}%`,
       },
     })),
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: confidenceCaveats([current]),
     href: `/performance?orgUnit=${query.orgUnitId}&period=${query.periodId}`,
   };
 }
 
-function indicatorTrend(query: AnalyticalQuery): AnalyticalResult {
+async function indicatorTrend(query: AnalyticalQuery): Promise<AnalyticalResult> {
   if (!query.indicatorId) {
     return declined(query, 'The question did not name an indicator the platform recognises.');
   }
-  const detail = getIndicatorDetail(query.orgUnitId, query.indicatorId, query.periodId);
+  const detail = await getIndicatorDetail(query.orgUnitId, query.indicatorId, query.periodId);
   if (!detail) return declined(query, 'That indicator is not configured for this geography.');
 
   const suffix = detail.indicator.unit === 'PERCENT' ? '%' : '';
@@ -281,7 +280,7 @@ function indicatorTrend(query: AnalyticalQuery): AnalyticalResult {
         trend: entry.trend.direction.toLowerCase(),
       },
     })),
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: detail.findings.length > 0
       ? [`${detail.findings.length} open data-quality finding(s) touch this indicator.`]
       : [],
@@ -289,14 +288,14 @@ function indicatorTrend(query: AnalyticalQuery): AnalyticalResult {
   };
 }
 
-function compareUnits(query: AnalyticalQuery): AnalyticalResult {
+async function compareUnits(query: AnalyticalQuery): Promise<AnalyticalResult> {
   const ids = (query.compareOrgUnitIds ?? []).slice(0, 3);
   if (ids.length < 2) {
     return declined(query, 'Two or more geographies the platform recognises are needed for a comparison.');
   }
-  const cards = ids
-    .map((id) => getScorecard(id, query.periodId))
-    .filter((card): card is NonNullable<typeof card> => card !== null);
+  const cards = (await Promise.all(ids.map((id) => getScorecard(id, query.periodId)))).filter(
+    (card): card is NonNullable<typeof card> => card !== null,
+  );
   if (cards.length < 2) {
     return declined(query, 'At least one of the named geographies has no stored reporting for this period.');
   }
@@ -349,10 +348,10 @@ function compareUnits(query: AnalyticalQuery): AnalyticalResult {
   };
 }
 
-function dataQuality(query: AnalyticalQuery): AnalyticalResult {
-  const children = listChildren(query.orgUnitId);
+async function dataQuality(query: AnalyticalQuery): Promise<AnalyticalResult> {
+  const children = await listChildren(query.orgUnitId);
   const scope = [query.orgUnitId, ...children.map((child) => child.id)];
-  const findings = listFindings({ orgUnitIds: scope, status: 'OPEN', limit: query.limit ?? 12 });
+  const findings = await listFindings({ orgUnitIds: scope, status: 'OPEN', limit: query.limit ?? 12 });
 
   if (findings.length === 0) {
     return {
@@ -361,7 +360,7 @@ function dataQuality(query: AnalyticalQuery): AnalyticalResult {
       findings: [],
       columns: [],
       rows: [],
-      basis: basisFor(query),
+      basis: await basisFor(query),
       caveats: [],
       href: '/intelligence/data-quality',
     };
@@ -393,24 +392,23 @@ function dataQuality(query: AnalyticalQuery): AnalyticalResult {
         period: finding.periodId,
       },
     })),
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: [],
     href: '/intelligence/data-quality',
   };
 }
 
-function riskOutlook(query: AnalyticalQuery): AnalyticalResult {
-  const children = getChildScorecards(query.orgUnitId, query.periodId);
-  const previous = new Map(
-    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)).map((card) => [
-      card.orgUnitId,
-      card,
-    ]),
-  );
+async function riskOutlook(query: AnalyticalQuery): Promise<AnalyticalResult> {
+  const [children, priorCards, methodology] = await Promise.all([
+    getChildScorecards(query.orgUnitId, query.periodId),
+    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)),
+    getActiveMethodology(),
+  ]);
+  const previous = new Map(priorCards.map((card) => [card.orgUnitId, card]));
 
   // Risk here is defined and computed, not asserted: distance below the
   // threshold, recent movement, and how much the evidence can be trusted.
-  const threshold = getActiveMethodology().statusBands.onTrack;
+  const threshold = methodology.statusBands.onTrack;
   const scored = children
     .filter((card) => card.overallScore !== null)
     .map((card) => {
@@ -435,7 +433,7 @@ function riskOutlook(query: AnalyticalQuery): AnalyticalResult {
       findings: [],
       columns: [],
       rows: [],
-      basis: basisFor(query),
+      basis: await basisFor(query),
       caveats: [],
       href: `/performance?orgUnit=${query.orgUnitId}&period=${query.periodId}`,
     };
@@ -473,24 +471,22 @@ function riskOutlook(query: AnalyticalQuery): AnalyticalResult {
         risk: entry.risk,
       },
     })),
-    basis: `${basisFor(query)} Risk index combines shortfall against threshold, recent movement and data confidence.`,
+    basis: `${await basisFor(query)} Risk index combines shortfall against threshold, recent movement and data confidence.`,
     caveats: confidenceCaveats(scored.map((entry) => entry.card)),
     href: `/performance?orgUnit=${query.orgUnitId}&period=${query.periodId}`,
   };
 }
 
-function summary(query: AnalyticalQuery): AnalyticalResult {
-  const card = getScorecard(query.orgUnitId, query.periodId);
+async function summary(query: AnalyticalQuery): Promise<AnalyticalResult> {
+  const card = await getScorecard(query.orgUnitId, query.periodId);
   if (!card || card.overallScore === null) {
     return declined(query, 'There is not enough reported data to summarise this period.');
   }
-  const children = getChildScorecards(query.orgUnitId, query.periodId);
-  const previous = new Map(
-    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)).map((entry) => [
-      entry.orgUnitId,
-      entry,
-    ]),
-  );
+  const [children, priorCards] = await Promise.all([
+    getChildScorecards(query.orgUnitId, query.periodId),
+    getChildScorecards(query.orgUnitId, previousPeriodId(query.periodId)),
+  ]);
+  const previous = new Map(priorCards.map((entry) => [entry.orgUnitId, entry]));
   const ranked = rankScorecards(children, previous);
   const attention = ranked.filter((unit) => unit.status === 'NEEDS_ATTENTION');
   const weakest = [...card.domains]
@@ -555,20 +551,20 @@ function summary(query: AnalyticalQuery): AnalyticalResult {
         trend: domain.trend.direction.toLowerCase(),
       },
     })),
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: confidenceCaveats([card]),
     href: `/performance?orgUnit=${query.orgUnitId}&period=${query.periodId}`,
   };
 }
 
-function declined(query: AnalyticalQuery, reason: string): AnalyticalResult {
+async function declined(query: AnalyticalQuery, reason: string): Promise<AnalyticalResult> {
   return {
     query,
     headline: reason,
     findings: [],
     columns: [],
     rows: [],
-    basis: basisFor(query),
+    basis: await basisFor(query),
     caveats: [reason],
     href: null,
   };

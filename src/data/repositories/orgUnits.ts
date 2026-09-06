@@ -1,4 +1,4 @@
-import { getDb } from '../db/client';
+import { chunk, execute, query, queryOne, valuesClause } from '../db/client';
 import type { OrgLevel, OrgUnit } from '@/core/model/types';
 
 interface Row {
@@ -10,7 +10,7 @@ interface Row {
   path: string;
   lon: number | null;
   lat: number | null;
-  active: number;
+  active: boolean;
 }
 
 function toOrgUnit(row: Row): OrgUnit {
@@ -22,82 +22,77 @@ function toOrgUnit(row: Row): OrgUnit {
     parentId: row.parent_id,
     path: row.path.split('/').filter(Boolean),
     centroid: row.lon !== null && row.lat !== null ? { lon: row.lon, lat: row.lat } : null,
-    active: row.active === 1,
+    active: row.active,
   };
 }
 
-export function listOrgUnits(level?: OrgLevel): OrgUnit[] {
-  const db = getDb();
-  const rows = (
-    level
-      ? db.prepare('SELECT * FROM org_units WHERE level = ? AND active = 1 ORDER BY name').all(level)
-      : db.prepare('SELECT * FROM org_units WHERE active = 1 ORDER BY level, name').all()
-  ) as Row[];
+export async function listOrgUnits(level?: OrgLevel): Promise<OrgUnit[]> {
+  const rows = level
+    ? await query<Row>('SELECT * FROM org_units WHERE level = $1 AND active ORDER BY name', [level])
+    : await query<Row>('SELECT * FROM org_units WHERE active ORDER BY level, name');
   return rows.map(toOrgUnit);
 }
 
-export function getOrgUnit(id: string): OrgUnit | null {
-  const row = getDb().prepare('SELECT * FROM org_units WHERE id = ?').get(id) as Row | undefined;
+export async function getOrgUnit(id: string): Promise<OrgUnit | null> {
+  const row = await queryOne<Row>('SELECT * FROM org_units WHERE id = $1', [id]);
   return row ? toOrgUnit(row) : null;
 }
 
-export function listChildren(parentId: string): OrgUnit[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM org_units WHERE parent_id = ? AND active = 1 ORDER BY name')
-    .all(parentId) as Row[];
+export async function listChildren(parentId: string): Promise<OrgUnit[]> {
+  const rows = await query<Row>(
+    'SELECT * FROM org_units WHERE parent_id = $1 AND active ORDER BY name',
+    [parentId],
+  );
   return rows.map(toOrgUnit);
 }
 
 /** All descendants at a given level, using the materialised path. */
-export function listDescendants(rootId: string, level?: OrgLevel): OrgUnit[] {
-  const db = getDb();
+export async function listDescendants(rootId: string, level?: OrgLevel): Promise<OrgUnit[]> {
   const pattern = `%/${rootId}/%`;
-  const rows = (
-    level
-      ? db
-          .prepare(
-            'SELECT * FROM org_units WHERE path LIKE ? AND level = ? AND id != ? AND active = 1 ORDER BY name',
-          )
-          .all(pattern, level, rootId)
-      : db
-          .prepare('SELECT * FROM org_units WHERE path LIKE ? AND id != ? AND active = 1 ORDER BY level, name')
-          .all(pattern, rootId)
-  ) as Row[];
+  const rows = level
+    ? await query<Row>(
+        'SELECT * FROM org_units WHERE path LIKE $1 AND level = $2 AND id <> $3 AND active ORDER BY name',
+        [pattern, level, rootId],
+      )
+    : await query<Row>(
+        'SELECT * FROM org_units WHERE path LIKE $1 AND id <> $2 AND active ORDER BY level, name',
+        [pattern, rootId],
+      );
   return rows.map(toOrgUnit);
 }
 
 /** The root of the hierarchy, used as the default scope for national users. */
-export function getRootOrgUnit(): OrgUnit | null {
-  const row = getDb()
-    .prepare('SELECT * FROM org_units WHERE parent_id IS NULL AND active = 1 ORDER BY level LIMIT 1')
-    .get() as Row | undefined;
+export async function getRootOrgUnit(): Promise<OrgUnit | null> {
+  const row = await queryOne<Row>(
+    'SELECT * FROM org_units WHERE parent_id IS NULL AND active ORDER BY level LIMIT 1',
+  );
   return row ? toOrgUnit(row) : null;
 }
 
-export function upsertOrgUnits(units: OrgUnit[]): void {
-  const db = getDb();
-  const statement = db.prepare(
-    `INSERT INTO org_units (id, code, name, level, parent_id, path, lon, lat, active)
-     VALUES (@id, @code, @name, @level, @parent_id, @path, @lon, @lat, @active)
-     ON CONFLICT(id) DO UPDATE SET
-       code = excluded.code, name = excluded.name, level = excluded.level,
-       parent_id = excluded.parent_id, path = excluded.path,
-       lon = excluded.lon, lat = excluded.lat, active = excluded.active`,
-  );
-  const run = db.transaction((rows: OrgUnit[]) => {
-    for (const unit of rows) {
-      statement.run({
-        id: unit.id,
-        code: unit.code,
-        name: unit.name,
-        level: unit.level,
-        parent_id: unit.parentId,
-        path: `/${unit.path.join('/')}/`,
-        lon: unit.centroid?.lon ?? null,
-        lat: unit.centroid?.lat ?? null,
-        active: unit.active ? 1 : 0,
-      });
-    }
-  });
-  run(units);
+export async function upsertOrgUnits(units: OrgUnit[]): Promise<void> {
+  if (units.length === 0) return;
+  for (const batch of chunk(units, 9)) {
+    const { text, params } = valuesClause(
+      batch.map((unit) => [
+        unit.id,
+        unit.code,
+        unit.name,
+        unit.level,
+        unit.parentId,
+        `/${unit.path.join('/')}/`,
+        unit.centroid?.lon ?? null,
+        unit.centroid?.lat ?? null,
+        unit.active,
+      ]),
+    );
+    await execute(
+      `INSERT INTO org_units (id, code, name, level, parent_id, path, lon, lat, active)
+       VALUES ${text}
+       ON CONFLICT (id) DO UPDATE SET
+         code = EXCLUDED.code, name = EXCLUDED.name, level = EXCLUDED.level,
+         parent_id = EXCLUDED.parent_id, path = EXCLUDED.path,
+         lon = EXCLUDED.lon, lat = EXCLUDED.lat, active = EXCLUDED.active`,
+      params,
+    );
+  }
 }

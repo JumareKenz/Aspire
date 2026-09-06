@@ -30,15 +30,18 @@ function relativeAge(iso: string | null): string {
 export default async function AdminPage() {
   const user = await requirePermission('admin.view');
   const adapter = getSourceAdapter();
-  const mode = getDataMode();
-  const lastSync = getLastSyncAt();
-  const runs = listSyncRuns(10);
-  const lastSuccess = lastSuccessfulSync();
-  const methodology = getActiveMethodology();
-  const indicators = listIndicators(true);
+  const [mode, lastSync, runs, lastSuccess, methodology, indicators, orgUnits, openFindings] =
+    await Promise.all([
+      getDataMode(),
+      getLastSyncAt(),
+      listSyncRuns(10),
+      lastSuccessfulSync(),
+      getActiveMethodology(),
+      listIndicators(true),
+      listOrgUnits(),
+      listFindings({ status: 'OPEN' }),
+    ]);
   const unmapped = indicators.filter((indicator) => indicator.source.dx === null);
-  const orgUnits = listOrgUnits();
-  const openFindings = listFindings({ status: 'OPEN' });
 
   return (
     <>

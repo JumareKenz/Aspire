@@ -1,28 +1,28 @@
-import { getDb } from '../db/client';
+import { chunk, execute, query, valuesClause } from '../db/client';
 import type { Observation, Period, ReportingRecord, Target } from '@/core/model/types';
 
-export function upsertObservations(observations: Observation[]): void {
-  const db = getDb();
-  const statement = db.prepare(
-    `INSERT INTO observations (indicator_id, org_unit_id, period_id, disaggregation, value, numerator, denominator)
-     VALUES (@indicator_id, @org_unit_id, @period_id, @disaggregation, @value, @numerator, @denominator)
-     ON CONFLICT(indicator_id, org_unit_id, period_id, disaggregation) DO UPDATE SET
-       value = excluded.value, numerator = excluded.numerator, denominator = excluded.denominator`,
-  );
-  const run = db.transaction((rows: Observation[]) => {
-    for (const row of rows) {
-      statement.run({
-        indicator_id: row.indicatorId,
-        org_unit_id: row.orgUnitId,
-        period_id: row.periodId,
-        disaggregation: row.disaggregation ?? '',
-        value: row.value,
-        numerator: row.numerator,
-        denominator: row.denominator,
-      });
-    }
-  });
-  run(observations);
+export async function upsertObservations(observations: Observation[]): Promise<void> {
+  if (observations.length === 0) return;
+  for (const batch of chunk(observations, 7)) {
+    const { text, params } = valuesClause(
+      batch.map((row) => [
+        row.indicatorId,
+        row.orgUnitId,
+        row.periodId,
+        row.disaggregation ?? '',
+        row.value,
+        row.numerator,
+        row.denominator,
+      ]),
+    );
+    await execute(
+      `INSERT INTO observations (indicator_id, org_unit_id, period_id, disaggregation, value, numerator, denominator)
+       VALUES ${text}
+       ON CONFLICT (indicator_id, org_unit_id, period_id, disaggregation) DO UPDATE SET
+         value = EXCLUDED.value, numerator = EXCLUDED.numerator, denominator = EXCLUDED.denominator`,
+      params,
+    );
+  }
 }
 
 interface ObsRow {
@@ -47,21 +47,17 @@ function toObservation(row: ObsRow): Observation {
   };
 }
 
-function placeholders(count: number): string {
-  return new Array(count).fill('?').join(',');
-}
-
 /** Total (non-disaggregated) observations for a set of org units and periods. */
-export function getObservations(orgUnitIds: string[], periodIds: string[]): Observation[] {
+export async function getObservations(
+  orgUnitIds: string[],
+  periodIds: string[],
+): Promise<Observation[]> {
   if (orgUnitIds.length === 0 || periodIds.length === 0) return [];
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM observations
-       WHERE disaggregation = ''
-         AND org_unit_id IN (${placeholders(orgUnitIds.length)})
-         AND period_id IN (${placeholders(periodIds.length)})`,
-    )
-    .all(...orgUnitIds, ...periodIds) as ObsRow[];
+  const rows = await query<ObsRow>(
+    `SELECT * FROM observations
+     WHERE disaggregation = '' AND org_unit_id = ANY($1) AND period_id = ANY($2)`,
+    [orgUnitIds, periodIds],
+  );
   return rows.map(toObservation);
 }
 
@@ -70,42 +66,21 @@ export function getObservations(orgUnitIds: string[], periodIds: string[]): Obse
  * first. Absent periods are null rather than dropped, so the scoring engine's
  * missing-data rule sees the gaps.
  */
-export function getSeries(
+export async function getSeries(
   orgUnitId: string,
   periods: Period[],
   indicatorIds: string[],
-): Record<string, Array<number | null>> {
-  const result: Record<string, Array<number | null>> = {};
-  for (const indicatorId of indicatorIds) {
-    result[indicatorId] = new Array<number | null>(periods.length).fill(null);
-  }
-  if (periods.length === 0 || indicatorIds.length === 0) return result;
-
-  const index = new Map(periods.map((period, i) => [period.id, i]));
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM observations
-       WHERE disaggregation = '' AND org_unit_id = ?
-         AND period_id IN (${placeholders(periods.length)})
-         AND indicator_id IN (${placeholders(indicatorIds.length)})`,
-    )
-    .all(orgUnitId, ...periods.map((p) => p.id), ...indicatorIds) as ObsRow[];
-
-  for (const row of rows) {
-    const position = index.get(row.period_id);
-    if (position === undefined) continue;
-    const series = result[row.indicator_id];
-    if (series) series[position] = row.value;
-  }
-  return result;
+): Promise<Record<string, Array<number | null>>> {
+  const byUnit = await getSeriesForUnits([orgUnitId], periods, indicatorIds);
+  return byUnit.get(orgUnitId) ?? {};
 }
 
 /** Series for many org units at once, keyed by org unit then indicator. */
-export function getSeriesForUnits(
+export async function getSeriesForUnits(
   orgUnitIds: string[],
   periods: Period[],
   indicatorIds: string[],
-): Map<string, Record<string, Array<number | null>>> {
+): Promise<Map<string, Record<string, Array<number | null>>>> {
   const result = new Map<string, Record<string, Array<number | null>>>();
   for (const orgUnitId of orgUnitIds) {
     const empty: Record<string, Array<number | null>> = {};
@@ -117,15 +92,12 @@ export function getSeriesForUnits(
   if (orgUnitIds.length === 0 || periods.length === 0 || indicatorIds.length === 0) return result;
 
   const index = new Map(periods.map((period, i) => [period.id, i]));
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM observations
-       WHERE disaggregation = ''
-         AND org_unit_id IN (${placeholders(orgUnitIds.length)})
-         AND period_id IN (${placeholders(periods.length)})
-         AND indicator_id IN (${placeholders(indicatorIds.length)})`,
-    )
-    .all(...orgUnitIds, ...periods.map((p) => p.id), ...indicatorIds) as ObsRow[];
+  const rows = await query<ObsRow>(
+    `SELECT * FROM observations
+     WHERE disaggregation = ''
+       AND org_unit_id = ANY($1) AND period_id = ANY($2) AND indicator_id = ANY($3)`,
+    [orgUnitIds, periods.map((p) => p.id), indicatorIds],
+  );
 
   for (const row of rows) {
     const position = index.get(row.period_id);
@@ -137,87 +109,100 @@ export function getSeriesForUnits(
   return result;
 }
 
-export function upsertPeriods(periods: Period[]): void {
-  const db = getDb();
-  const statement = db.prepare(
-    `INSERT INTO periods (id, type, start_date, end_date, label) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO NOTHING`,
+export async function upsertPeriods(periods: Period[]): Promise<void> {
+  if (periods.length === 0) return;
+  const { text, params } = valuesClause(
+    periods.map((period) => [period.id, period.type, period.startDate, period.endDate, period.label]),
   );
-  const run = db.transaction((rows: Period[]) => {
-    for (const period of rows) {
-      statement.run(period.id, period.type, period.startDate, period.endDate, period.label);
-    }
-  });
-  run(periods);
+  await execute(
+    `INSERT INTO periods (id, type, start_date, end_date, label) VALUES ${text}
+     ON CONFLICT (id) DO NOTHING`,
+    params,
+  );
 }
 
-export function upsertReporting(records: ReportingRecord[]): void {
-  const db = getDb();
-  const statement = db.prepare(
-    `INSERT INTO reporting (org_unit_id, dataset_id, period_id, expected, reported, submitted_at, due_date)
-     VALUES (@org_unit_id, @dataset_id, @period_id, @expected, @reported, @submitted_at, @due_date)
-     ON CONFLICT(org_unit_id, dataset_id, period_id) DO UPDATE SET
-       expected = excluded.expected, reported = excluded.reported,
-       submitted_at = excluded.submitted_at, due_date = excluded.due_date`,
-  );
-  const run = db.transaction((rows: ReportingRecord[]) => {
-    for (const record of rows) {
-      statement.run({
-        org_unit_id: record.orgUnitId,
-        dataset_id: record.datasetId,
-        period_id: record.periodId,
-        expected: record.expected ? 1 : 0,
-        reported: record.reported ? 1 : 0,
-        submitted_at: record.submittedAt,
-        due_date: record.dueDate,
-      });
-    }
-  });
-  run(records);
+export async function upsertReporting(records: ReportingRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  for (const batch of chunk(records, 7)) {
+    const { text, params } = valuesClause(
+      batch.map((record) => [
+        record.orgUnitId,
+        record.datasetId,
+        record.periodId,
+        record.expected,
+        record.reported,
+        record.submittedAt,
+        record.dueDate,
+      ]),
+    );
+    await execute(
+      `INSERT INTO reporting (org_unit_id, dataset_id, period_id, expected, reported, submitted_at, due_date)
+       VALUES ${text}
+       ON CONFLICT (org_unit_id, dataset_id, period_id) DO UPDATE SET
+         expected = EXCLUDED.expected, reported = EXCLUDED.reported,
+         submitted_at = EXCLUDED.submitted_at, due_date = EXCLUDED.due_date`,
+      params,
+    );
+  }
 }
 
 interface ReportingRow {
   org_unit_id: string;
   dataset_id: string;
   period_id: string;
-  expected: number;
-  reported: number;
-  submitted_at: string | null;
-  due_date: string;
+  expected: boolean;
+  reported: boolean;
+  submitted_at: Date | null;
+  due_date: Date;
 }
 
-export function getReporting(orgUnitIds: string[], periodIds: string[]): ReportingRecord[] {
+/** Dates come back from pg as Date objects; the canonical model uses ISO strings. */
+function isoDate(value: Date | string): string {
+  return typeof value === 'string' ? value.slice(0, 10) : value.toISOString().slice(0, 10);
+}
+
+function isoDateTime(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return typeof value === 'string' ? value : value.toISOString();
+}
+
+export async function getReporting(
+  orgUnitIds: string[],
+  periodIds: string[],
+): Promise<ReportingRecord[]> {
   if (orgUnitIds.length === 0 || periodIds.length === 0) return [];
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM reporting
-       WHERE org_unit_id IN (${placeholders(orgUnitIds.length)})
-         AND period_id IN (${placeholders(periodIds.length)})`,
-    )
-    .all(...orgUnitIds, ...periodIds) as ReportingRow[];
+  const rows = await query<ReportingRow>(
+    'SELECT * FROM reporting WHERE org_unit_id = ANY($1) AND period_id = ANY($2)',
+    [orgUnitIds, periodIds],
+  );
   return rows.map((row) => ({
     orgUnitId: row.org_unit_id,
     datasetId: row.dataset_id,
     periodId: row.period_id,
-    expected: row.expected === 1,
-    reported: row.reported === 1,
-    submittedAt: row.submitted_at,
-    dueDate: row.due_date,
+    expected: row.expected,
+    reported: row.reported,
+    submittedAt: isoDateTime(row.submitted_at),
+    dueDate: isoDate(row.due_date),
   }));
 }
 
-export function upsertTargets(targets: Target[]): void {
-  const db = getDb();
-  const statement = db.prepare(
-    `INSERT INTO targets (indicator_id, org_unit_id, period_id, value) VALUES (?, ?, ?, ?)
-     ON CONFLICT(indicator_id, org_unit_id, period_id) DO UPDATE SET value = excluded.value`,
-  );
-  const run = db.transaction((rows: Target[]) => {
-    for (const target of rows) {
-      statement.run(target.indicatorId, target.orgUnitId ?? '', target.periodId ?? '', target.value);
-    }
-  });
-  run(targets);
+export async function upsertTargets(targets: Target[]): Promise<void> {
+  if (targets.length === 0) return;
+  for (const batch of chunk(targets, 4)) {
+    const { text, params } = valuesClause(
+      batch.map((target) => [
+        target.indicatorId,
+        target.orgUnitId ?? '',
+        target.periodId ?? '',
+        target.value,
+      ]),
+    );
+    await execute(
+      `INSERT INTO targets (indicator_id, org_unit_id, period_id, value) VALUES ${text}
+       ON CONFLICT (indicator_id, org_unit_id, period_id) DO UPDATE SET value = EXCLUDED.value`,
+      params,
+    );
+  }
 }
 
 /**
@@ -225,18 +210,20 @@ export function upsertTargets(targets: Target[]): void {
  * period-specific target overrides an org-specific one, which overrides the
  * global default.
  */
-export function getEffectiveTargets(orgUnitId: string, periodId: string): Record<string, number> {
-  const rows = getDb()
-    .prepare(
-      `SELECT indicator_id, org_unit_id, period_id, value FROM targets
-       WHERE (org_unit_id = ? OR org_unit_id = '') AND (period_id = ? OR period_id = '')`,
-    )
-    .all(orgUnitId, periodId) as Array<{
+export async function getEffectiveTargets(
+  orgUnitId: string,
+  periodId: string,
+): Promise<Record<string, number>> {
+  const rows = await query<{
     indicator_id: string;
     org_unit_id: string;
     period_id: string;
     value: number;
-  }>;
+  }>(
+    `SELECT indicator_id, org_unit_id, period_id, value FROM targets
+     WHERE (org_unit_id = $1 OR org_unit_id = '') AND (period_id = $2 OR period_id = '')`,
+    [orgUnitId, periodId],
+  );
 
   const scored = new Map<string, { value: number; specificity: number }>();
   for (const row of rows) {

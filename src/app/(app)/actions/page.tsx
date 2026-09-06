@@ -11,9 +11,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function ActionsPage() {
   const user = await requireUser();
-  const scope = resolveScope(user);
-  const actions = getActionViews(scope.ids);
-  const assignees = listUsers()
+  const scope = await resolveScope(user);
+  const [actions, users] = await Promise.all([getActionViews(scope.ids), listUsers()]);
+  const assignees = users
     .filter((entry) => entry.active)
     .map((entry) => ({ id: entry.id, name: entry.name }));
 

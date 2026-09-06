@@ -21,8 +21,10 @@ export const metadata: Metadata = { title: 'Performance' };
 export const dynamic = 'force-dynamic';
 
 /** State › LGA › Facility, so a user always knows where they are and can step back. */
-function Breadcrumb({ path, periodId }: { path: string[]; periodId: string }) {
-  const units = path.map((id) => getOrgUnit(id)).filter((unit) => unit !== null);
+async function Breadcrumb({ path, periodId }: { path: string[]; periodId: string }) {
+  const units = (await Promise.all(path.map((id) => getOrgUnit(id)))).filter(
+    (unit): unit is NonNullable<typeof unit> => unit !== null,
+  );
   if (units.length <= 1) return null;
   return (
     <nav aria-label="Geography" className="mb-2 flex flex-wrap items-center gap-1 text-[12px]">
@@ -56,7 +58,7 @@ export default async function PerformancePage({
 }) {
   const params = await searchParams;
   const context = await resolvePageContext(params);
-  const scorecard = getScorecard(context.orgUnit.id, context.periodId);
+  const scorecard = await getScorecard(context.orgUnit.id, context.periodId);
   const expandDomain = typeof params.domain === 'string' ? [params.domain] : undefined;
 
   const controls = (
@@ -80,13 +82,11 @@ export default async function PerformancePage({
     );
   }
 
-  const children = getChildScorecards(context.orgUnit.id, context.periodId);
-  const previousChildren = new Map(
-    getChildScorecards(context.orgUnit.id, previousPeriodId(context.periodId)).map((card) => [
-      card.orgUnitId,
-      card,
-    ]),
-  );
+  const [children, priorCards] = await Promise.all([
+    getChildScorecards(context.orgUnit.id, context.periodId),
+    getChildScorecards(context.orgUnit.id, previousPeriodId(context.periodId)),
+  ]);
+  const previousChildren = new Map(priorCards.map((card) => [card.orgUnitId, card]));
   const ranked = rankScorecards(children, previousChildren);
   const historyByUnit = new Map(children.map((card) => [card.orgUnitId, card.overallSeries]));
   const rows: AreaRow[] = ranked.map((unit) => ({

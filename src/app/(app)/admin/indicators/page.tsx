@@ -12,8 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function IndicatorsPage() {
   const user = await requirePermission('admin.view');
-  const indicators = listIndicators(true);
-  const methodology = getActiveMethodology();
+  const [indicators, methodology] = await Promise.all([listIndicators(true), getActiveMethodology()]);
 
   return (
     <>

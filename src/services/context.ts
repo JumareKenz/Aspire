@@ -38,7 +38,7 @@ function first(value: string | string[] | undefined): string | undefined {
  */
 export async function resolvePageContext(searchParams: SearchParams): Promise<PageContext> {
   const user = await requireUser();
-  const scope = resolveScope(user);
+  const scope = await resolveScope(user);
 
   const periods = analysisPeriods();
   const periodOptions: PeriodOption[] = [...periods]
@@ -50,7 +50,7 @@ export async function resolvePageContext(searchParams: SearchParams): Promise<Pa
   const period = periodMatch ?? periods[periods.length - 1];
 
   const requestedOrgUnit = first(searchParams.orgUnit);
-  const candidate = requestedOrgUnit ? getOrgUnit(requestedOrgUnit) : null;
+  const candidate = requestedOrgUnit ? await getOrgUnit(requestedOrgUnit) : null;
   const usable = candidate && isInScope(user.scope, candidate.path) ? candidate : null;
   const orgUnit = usable ?? scope.root;
 

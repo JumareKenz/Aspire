@@ -1,16 +1,13 @@
--- ASPIRE-GAC canonical store.
--- SQLite is used because the aggregate volumes involved fit comfortably in a
--- single embedded database and the platform must run without external
--- infrastructure. All access goes through the repositories in
--- `src/data/repositories`, so moving to Postgres is a driver change.
-
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
+-- ASPIRE-GAC canonical store (PostgreSQL).
+--
+-- All access goes through the repositories in `src/data/repositories`, so the
+-- rest of the platform is unaware of the engine. Statements are idempotent so
+-- the schema can be applied on every boot without a migration runner.
 
 CREATE TABLE IF NOT EXISTS settings (
   key         TEXT PRIMARY KEY,
   value       TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  updated_at  TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS org_units (
@@ -18,20 +15,23 @@ CREATE TABLE IF NOT EXISTS org_units (
   code        TEXT,
   name        TEXT NOT NULL,
   level       TEXT NOT NULL,
-  parent_id   TEXT REFERENCES org_units(id),
+  parent_id   TEXT,
   path        TEXT NOT NULL,
-  lon         REAL,
-  lat         REAL,
-  active      INTEGER NOT NULL DEFAULT 1
+  lon         DOUBLE PRECISION,
+  lat         DOUBLE PRECISION,
+  active      BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE INDEX IF NOT EXISTS idx_org_units_parent ON org_units(parent_id);
 CREATE INDEX IF NOT EXISTS idx_org_units_level ON org_units(level);
+-- Descendant lookups match on the materialised path, so it is indexed for the
+-- prefix/containment scans `listDescendants` performs.
+CREATE INDEX IF NOT EXISTS idx_org_units_path ON org_units(path text_pattern_ops);
 
 CREATE TABLE IF NOT EXISTS periods (
   id          TEXT PRIMARY KEY,
   type        TEXT NOT NULL,
-  start_date  TEXT NOT NULL,
-  end_date    TEXT NOT NULL,
+  start_date  DATE NOT NULL,
+  end_date    DATE NOT NULL,
   label       TEXT NOT NULL
 );
 
@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS observations (
   org_unit_id     TEXT NOT NULL,
   period_id       TEXT NOT NULL,
   disaggregation  TEXT NOT NULL DEFAULT '',
-  value           REAL NOT NULL,
-  numerator       REAL,
-  denominator     REAL,
+  value           DOUBLE PRECISION NOT NULL,
+  numerator       DOUBLE PRECISION,
+  denominator     DOUBLE PRECISION,
   PRIMARY KEY (indicator_id, org_unit_id, period_id, disaggregation)
 );
 CREATE INDEX IF NOT EXISTS idx_obs_org_period ON observations(org_unit_id, period_id);
@@ -52,10 +52,10 @@ CREATE TABLE IF NOT EXISTS reporting (
   org_unit_id   TEXT NOT NULL,
   dataset_id    TEXT NOT NULL,
   period_id     TEXT NOT NULL,
-  expected      INTEGER NOT NULL,
-  reported      INTEGER NOT NULL,
-  submitted_at  TEXT,
-  due_date      TEXT NOT NULL,
+  expected      BOOLEAN NOT NULL,
+  reported      BOOLEAN NOT NULL,
+  submitted_at  TIMESTAMPTZ,
+  due_date      DATE NOT NULL,
   PRIMARY KEY (org_unit_id, dataset_id, period_id)
 );
 CREATE INDEX IF NOT EXISTS idx_reporting_period ON reporting(period_id);
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS targets (
   indicator_id  TEXT NOT NULL,
   org_unit_id   TEXT NOT NULL DEFAULT '',
   period_id     TEXT NOT NULL DEFAULT '',
-  value         REAL NOT NULL,
+  value         DOUBLE PRECISION NOT NULL,
   PRIMARY KEY (indicator_id, org_unit_id, period_id)
 );
 
@@ -73,21 +73,21 @@ CREATE TABLE IF NOT EXISTS targets (
 -- schema. Both are validated on read.
 CREATE TABLE IF NOT EXISTS indicator_config (
   id          TEXT PRIMARY KEY,
-  definition  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  definition  JSONB NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS domain_config (
   id          TEXT PRIMARY KEY,
-  definition  TEXT NOT NULL
+  definition  JSONB NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS methodologies (
   id          TEXT PRIMARY KEY,
   version     TEXT NOT NULL,
   status      TEXT NOT NULL,
-  document    TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  document    JSONB NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS quality_findings (
@@ -101,9 +101,9 @@ CREATE TABLE IF NOT EXISTS quality_findings (
   period_id      TEXT NOT NULL,
   title          TEXT NOT NULL,
   reason         TEXT NOT NULL,
-  evidence       TEXT NOT NULL,
+  evidence       JSONB NOT NULL,
   status         TEXT NOT NULL,
-  detected_at    TEXT NOT NULL
+  detected_at    TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_findings_org ON quality_findings(org_unit_id, period_id);
 CREATE INDEX IF NOT EXISTS idx_findings_status ON quality_findings(status);
@@ -117,9 +117,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- org unit ids the user may see, including their descendants.
   scope          TEXT NOT NULL DEFAULT '',
   password_hash  TEXT NOT NULL,
-  active         INTEGER NOT NULL DEFAULT 1,
-  created_at     TEXT NOT NULL,
-  last_login_at  TEXT
+  active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at     TIMESTAMPTZ NOT NULL,
+  last_login_at  TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -135,18 +135,18 @@ CREATE TABLE IF NOT EXISTS actions (
   status        TEXT NOT NULL,
   assignee_id   TEXT REFERENCES users(id),
   created_by    TEXT NOT NULL REFERENCES users(id),
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL,
-  due_date      TEXT,
+  created_at    TIMESTAMPTZ NOT NULL,
+  updated_at    TIMESTAMPTZ NOT NULL,
+  due_date      DATE,
   outcome       TEXT,
   -- Score for the action's org unit at creation time, so outcome can be measured.
-  baseline_score REAL
+  baseline_score DOUBLE PRECISION
 );
 CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id          TEXT PRIMARY KEY,
-  at          TEXT NOT NULL,
+  at          TIMESTAMPTZ NOT NULL,
   actor_id    TEXT,
   actor_email TEXT,
   action      TEXT NOT NULL,
@@ -159,8 +159,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
 CREATE TABLE IF NOT EXISTS sync_runs (
   id            TEXT PRIMARY KEY,
   source        TEXT NOT NULL,
-  started_at    TEXT NOT NULL,
-  finished_at   TEXT,
+  started_at    TIMESTAMPTZ NOT NULL,
+  finished_at   TIMESTAMPTZ,
   status        TEXT NOT NULL,
   org_units     INTEGER NOT NULL DEFAULT 0,
   observations  INTEGER NOT NULL DEFAULT 0,

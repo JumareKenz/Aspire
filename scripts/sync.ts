@@ -4,6 +4,7 @@
  */
 import { ensureBootstrapped } from '../src/data/bootstrap';
 import { runSync } from '../src/data/sync/orchestrator';
+import { closeDb } from '../src/data/db/client';
 
 async function main() {
   await ensureBootstrapped();
@@ -15,7 +16,10 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(() => closeDb())
+  .catch(async (error) => {
+    console.error(error);
+    await closeDb();
+    process.exit(1);
+  });

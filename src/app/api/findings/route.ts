@@ -14,10 +14,10 @@ const schema = z.object({
  */
 export const PATCH = withUser(async (user, request) => {
   const body = schema.parse(await request.json());
-  const updated = setFindingStatus(body.id, body.status);
+  const updated = await setFindingStatus(body.id, body.status);
   if (!updated) throw new ApiError('That finding no longer exists.', 404);
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'quality.triage',

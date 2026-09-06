@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../db/client';
+import { execute, query } from '../db/client';
 
 export interface AuditEntry {
   id: string;
@@ -25,41 +25,45 @@ export interface AuditInput {
  * Records an administratively significant event. Called for sign-in, sign-out,
  * configuration changes, synchronisation and every AI question, so that the
  * platform can account for what it was asked and what it changed.
+ *
+ * Auditing must never break the operation it is recording, so a write failure
+ * is logged and swallowed rather than propagated.
  */
-export function recordAudit(input: AuditInput): void {
-  getDb()
-    .prepare(
+export async function recordAudit(input: AuditInput): Promise<void> {
+  try {
+    await execute(
       `INSERT INTO audit_log (id, at, actor_id, actor_email, action, target, detail, ip)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      randomUUID(),
-      new Date().toISOString(),
-      input.actorId ?? null,
-      input.actorEmail ?? null,
-      input.action,
-      input.target ?? null,
-      input.detail ?? null,
-      input.ip ?? null,
+       VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7)`,
+      [
+        randomUUID(),
+        input.actorId ?? null,
+        input.actorEmail ?? null,
+        input.action,
+        input.target ?? null,
+        input.detail ?? null,
+        input.ip ?? null,
+      ],
     );
+  } catch (error) {
+    console.error('[audit] failed to record event', input.action, error);
+  }
 }
 
-export function listAudit(limit = 100): AuditEntry[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM audit_log ORDER BY at DESC LIMIT ?')
-    .all(Math.min(500, Math.max(1, limit))) as Array<{
+export async function listAudit(limit = 100): Promise<AuditEntry[]> {
+  const rows = await query<{
     id: string;
-    at: string;
+    at: Date | string;
     actor_id: string | null;
     actor_email: string | null;
     action: string;
     target: string | null;
     detail: string | null;
     ip: string | null;
-  }>;
+  }>('SELECT * FROM audit_log ORDER BY at DESC LIMIT $1', [Math.min(500, Math.max(1, limit))]);
+
   return rows.map((row) => ({
     id: row.id,
-    at: row.at,
+    at: typeof row.at === 'string' ? row.at : row.at.toISOString(),
     actorId: row.actor_id,
     actorEmail: row.actor_email,
     action: row.action,

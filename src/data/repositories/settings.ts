@@ -1,11 +1,5 @@
-import { getDb } from '../db/client';
+import { execute, queryOne } from '../db/client';
 import type { DataMode } from '@/core/model/types';
-
-export interface Dhis2Settings {
-  baseUrl: string;
-  /** Personal access token or basic-auth pair; never sent to the browser. */
-  hasCredentials: boolean;
-}
 
 const KEYS = {
   dataMode: 'data.mode',
@@ -13,20 +7,17 @@ const KEYS = {
   dhis2BaseUrl: 'dhis2.baseUrl',
 } as const;
 
-export function getSetting(key: string): string | null {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined;
+export async function getSetting(key: string): Promise<string | null> {
+  const row = await queryOne<{ value: string }>('SELECT value FROM settings WHERE key = $1', [key]);
   return row?.value ?? null;
 }
 
-export function setSetting(key: string, value: string): void {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    )
-    .run(key, value, new Date().toISOString());
+export async function setSetting(key: string, value: string): Promise<void> {
+  await execute(
+    `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+    [key, value],
+  );
 }
 
 /**
@@ -34,24 +25,24 @@ export function setSetting(key: string, value: string): void {
  * unambiguous about what it is showing; it becomes DHIS2 only when a DHIS2
  * synchronisation has actually succeeded.
  */
-export function getDataMode(): DataMode {
-  return getSetting(KEYS.dataMode) === 'DHIS2' ? 'DHIS2' : 'DEMO';
+export async function getDataMode(): Promise<DataMode> {
+  return (await getSetting(KEYS.dataMode)) === 'DHIS2' ? 'DHIS2' : 'DEMO';
 }
 
-export function setDataMode(mode: DataMode): void {
-  setSetting(KEYS.dataMode, mode);
+export async function setDataMode(mode: DataMode): Promise<void> {
+  await setSetting(KEYS.dataMode, mode);
 }
 
-export function getLastSyncAt(): string | null {
+export async function getLastSyncAt(): Promise<string | null> {
   return getSetting(KEYS.lastSyncAt);
 }
 
-export function setLastSyncAt(at: string): void {
-  setSetting(KEYS.lastSyncAt, at);
+export async function setLastSyncAt(at: string): Promise<void> {
+  await setSetting(KEYS.lastSyncAt, at);
 }
 
-export function getDhis2BaseUrl(): string | null {
-  return process.env.DHIS2_BASE_URL ?? getSetting(KEYS.dhis2BaseUrl);
+export async function getDhis2BaseUrl(): Promise<string | null> {
+  return process.env.DHIS2_BASE_URL ?? (await getSetting(KEYS.dhis2BaseUrl));
 }
 
 export const SETTING_KEYS = KEYS;

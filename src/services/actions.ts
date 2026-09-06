@@ -17,14 +17,15 @@ export interface ActionView extends ActionItem {
   scoreSinceRaised: { baseline: number; current: number; change: number } | null;
 }
 
-export function getActionViews(scopeIds: string[]): ActionView[] {
-  const users = new Map(listUsers().map((user) => [user.id, user.name]));
+export async function getActionViews(scopeIds: string[]): Promise<ActionView[]> {
+  const [userList, actions] = await Promise.all([listUsers(), listActions({ orgUnitIds: scopeIds })]);
+  const users = new Map(userList.map((user) => [user.id, user.name]));
   const currentPeriod = latestCompletePeriodId();
 
-  return listActions({ orgUnitIds: scopeIds }).map((action) => {
+  return Promise.all(actions.map(async (action) => {
     let scoreSinceRaised: ActionView['scoreSinceRaised'] = null;
     if (action.orgUnitId && action.baselineScore !== null) {
-      const current = getScorecard(action.orgUnitId, currentPeriod)?.overallScore ?? null;
+      const current = (await getScorecard(action.orgUnitId, currentPeriod))?.overallScore ?? null;
       if (current !== null) {
         scoreSinceRaised = {
           baseline: action.baselineScore,
@@ -35,10 +36,10 @@ export function getActionViews(scopeIds: string[]): ActionView[] {
     }
     return {
       ...action,
-      orgUnitName: action.orgUnitId ? (getOrgUnit(action.orgUnitId)?.name ?? null) : null,
+      orgUnitName: action.orgUnitId ? ((await getOrgUnit(action.orgUnitId))?.name ?? null) : null,
       assigneeName: action.assigneeId ? (users.get(action.assigneeId) ?? null) : null,
       createdByName: users.get(action.createdBy) ?? null,
       scoreSinceRaised,
     };
-  });
+  }));
 }

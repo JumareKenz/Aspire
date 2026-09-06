@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AuditPage() {
   await requirePermission('admin.view');
-  const entries = listAudit(200);
+  const entries = await listAudit(200);
 
   return (
     <>

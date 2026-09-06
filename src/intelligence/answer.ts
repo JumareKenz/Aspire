@@ -46,11 +46,16 @@ export async function answerQuestion(
   const periods = analysisPeriods();
   // Scope is applied to the planner's inputs, not just to its output: the model
   // is never shown the name of a geography this user may not see.
-  const orgUnits = listOrgUnits().filter((unit) => isInScope(user.scope, unit.path));
+  const [allUnits, indicators, domains] = await Promise.all([
+    listOrgUnits(),
+    listIndicators(),
+    listDomains(),
+  ]);
+  const orgUnits = allUnits.filter((unit) => isInScope(user.scope, unit.path));
   const context: IntentContext = {
     orgUnits,
-    indicators: listIndicators(),
-    domains: listDomains(),
+    indicators,
+    domains,
     defaultOrgUnitId: defaults.orgUnitId,
     defaultPeriodId: defaults.periodId,
     periodIds: periods.map((period) => period.id),
@@ -68,10 +73,10 @@ export async function answerQuestion(
     );
   }
 
-  const result = executeQuery(intent.query);
+  const result = await executeQuery(intent.query);
   const issues = validateResult(result);
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'intelligence.question',

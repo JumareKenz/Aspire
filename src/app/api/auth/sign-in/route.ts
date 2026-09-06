@@ -23,9 +23,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     const body = schema.parse(await request.json());
     const ip = request.headers.get('x-forwarded-for');
 
-    const user = authenticate(body.email, body.password);
+    const user = await authenticate(body.email, body.password);
     if (!user) {
-      recordAudit({
+      await recordAudit({
         action: 'auth.sign_in_failed',
         actorEmail: body.email.toLowerCase(),
         detail: 'Invalid credentials',
@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       scope: user.scope,
     });
 
-    recordAudit({ action: 'auth.sign_in', actorId: user.id, actorEmail: user.email, ip });
+    await recordAudit({ action: 'auth.sign_in', actorId: user.id, actorEmail: user.email, ip });
 
     const response = NextResponse.json({ data: { redirectTo: '/overview' } });
     response.cookies.set(SESSION_COOKIE, token, {

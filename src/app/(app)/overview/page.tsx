@@ -27,7 +27,7 @@ export default async function OverviewPage({
   searchParams: Promise<SearchParams>;
 }) {
   const context = await resolvePageContext(await searchParams);
-  const overview = getOverview(context.orgUnit.id, context.periodId);
+  const overview = await getOverview(context.orgUnit.id, context.periodId);
 
   if (!overview || overview.scorecard.overallScore === null) {
     return (

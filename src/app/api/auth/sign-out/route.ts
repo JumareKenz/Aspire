@@ -7,7 +7,7 @@ import { SESSION_COOKIE } from '@/auth/session';
 export async function POST(request: Request): Promise<NextResponse> {
   const user = await getCurrentUser();
   if (user) {
-    recordAudit({ action: 'auth.sign_out', actorId: user.id, actorEmail: user.email });
+    await recordAudit({ action: 'auth.sign_out', actorId: user.id, actorEmail: user.email });
   }
   const response = NextResponse.redirect(new URL('/sign-in', request.url), { status: 303 });
   response.cookies.delete(SESSION_COOKIE);

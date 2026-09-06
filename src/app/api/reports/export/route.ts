@@ -26,9 +26,9 @@ export const GET = withUser(async (user, request) => {
 
   if (!type || !REPORT_TYPES.includes(type)) throw new ApiError('Unknown report type.', 400);
   if (!orgUnitId) throw new ApiError('orgUnit is required.', 400);
-  assertOrgUnitInScope(user, orgUnitId);
+  await assertOrgUnitInScope(user, orgUnitId);
 
-  const report = generateReport(type, orgUnitId, periodId);
+  const report = await generateReport(type, orgUnitId, periodId);
   if (!report) throw new ApiError('There is no stored reporting for that geography and period.', 404);
 
   const lines: string[] = [
@@ -52,7 +52,7 @@ export const GET = withUser(async (user, request) => {
     lines.push('# This report contains no tabular data. Use the report view for its narrative sections.');
   }
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'reports.export',

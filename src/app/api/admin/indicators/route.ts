@@ -12,7 +12,7 @@ const schema = z.object({
   dx: z.string().nullable().optional(),
 });
 
-export const GET = withUser(async () => ok(listIndicators(true)), 'admin.view');
+export const GET = withUser(async () => ok(await listIndicators(true)), 'admin.view');
 
 /**
  * Edits an indicator's configuration.
@@ -22,7 +22,7 @@ export const GET = withUser(async () => ok(listIndicators(true)), 'admin.view');
  */
 export const PATCH = withUser(async (user, request) => {
   const body = schema.parse(await request.json());
-  const indicator = getIndicator(body.id);
+  const indicator = await getIndicator(body.id);
   if (!indicator) throw new ApiError('That indicator is not in the registry.', 404);
 
   const changes: string[] = [];
@@ -35,7 +35,7 @@ export const PATCH = withUser(async (user, request) => {
     indicator.defaultTarget = body.defaultTarget;
     // The global default target is also a row in `targets`, which is what the
     // scoring engine reads, so both are kept in step.
-    upsertTargets([
+    await upsertTargets([
       { indicatorId: indicator.id, orgUnitId: null, periodId: null, value: body.defaultTarget },
     ]);
   }
@@ -49,8 +49,8 @@ export const PATCH = withUser(async (user, request) => {
 
   if (changes.length === 0) return ok(indicator);
 
-  saveIndicator(indicator);
-  recordAudit({
+  await saveIndicator(indicator);
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'admin.indicator_update',

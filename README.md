@@ -8,21 +8,39 @@ Built on **HIVA by Hayok Medicare**, targeting **Gombe State**.
 
 ## Getting started
 
+Requires **PostgreSQL**. For local development:
+
 ```bash
+docker run -d --name aspire-postgres \
+  -e POSTGRES_USER=aspire -e POSTGRES_PASSWORD=aspire -e POSTGRES_DB=aspire \
+  -p 127.0.0.1:55433:5432 postgres:16-alpine
+
+cp .env.example .env.local     # set DATABASE_URL and ASPIRE_SEED_PASSWORD
 npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>. The platform seeds itself on first request with a
-clearly-labelled demo dataset — no configuration is required to see it working.
+Open <http://localhost:3000>. The platform applies its schema and seeds itself
+on first request with a clearly-labelled demo dataset.
 
-Development accounts (password `aspire-demo` unless `ASPIRE_SEED_PASSWORD` is set):
+## Deploying to Vercel
+
+1. Install **Neon** from the Vercel Marketplace (`vercel integration add neon`).
+   It provisions the database and sets `DATABASE_URL`.
+2. Set `ASPIRE_SESSION_SECRET` (32+ characters) and `ASPIRE_SEED_PASSWORD`.
+3. Deploy. The schema is applied and the demo data seeded on the first request;
+   an advisory lock ensures only one instance does it.
+
+Accounts created on first seed:
 
 | Account | Tier |
 |---|---|
 | `executive@aspire.local` | Executive / governance |
 | `analyst@aspire.local` | Programme, LGA, M&E and technical |
 | `admin@aspire.local` | System administrator |
+
+The password is whatever `ASPIRE_SEED_PASSWORD` was set to when the database was
+first seeded.
 
 ## Commands
 

@@ -11,7 +11,7 @@ production build clean
 
 | Area | Status | Notes |
 |---|---|---|
-| **Foundation** | Complete | Design tokens, shell, sessions, RBAC + geographic scope, SQLite store |
+| **Foundation** | Complete | Design tokens, shell, sessions, RBAC + geographic scope, PostgreSQL store |
 | **Canonical model** | Complete | OrgUnit · Period · Observation · ReportingRecord · Target, with materialised paths |
 | **Indicator registry** | Complete | 15 indicators, 6 domains, fully configurable; editable in Admin |
 | **Scorecard engine** | Complete | Methodology-driven, versioned, three scoring rules, three missing-data rules, coverage gate |
@@ -107,6 +107,9 @@ Recorded because they show what the tests are actually for.
 | Map failed `nested-interactive`: focusable areas inside `role="img"` are unreachable | axe audit | `role="group"` |
 | 68 findings rendered as one unbroken table several screens long | Visual review | Paginated at 25 with a count |
 | Model messaging duplicated in two panels | Visual review | Folded into one |
+| SQLite could not run on Vercel — its filesystem is read-only outside `/tmp`, and `/tmp` is not shared between invocations, so accounts were seeded in one invocation and gone by the next | A deployment failing to sign in | Migrated to PostgreSQL behind the same repository interfaces |
+| Concurrent cold starts would each seed the database | Reasoning about serverless before deploying | Postgres advisory lock around first-run setup; verified with three racing bootstraps producing 3 users and 1 sync run |
+| A failed bootstrap was cached as a rejected promise, poisoning the instance for its lifetime | Same review | The memo is cleared on failure so the next request retries |
 | **Real boundaries rendered as one giant rectangle covering the canvas** | Applying real geography | d3-geo reads polygons *spherically* and wants clockwise exterior rings — the opposite of RFC 7946. Specification-correct data therefore describes "the whole globe minus this LGA", collapsing the fitted scale from ~15,600 to 78. Rings are rewound once in the shipped file and normalised again on load for operator-supplied files |
 | DHIS2 level mapping assumed a national hierarchy | Reading the target instance's metadata | Level map is configurable and defaults to the state-rooted Gombe shape; a malformed override is rejected rather than silently falling back |
 | Analytics `LEVEL-n` built from canonical depth, not DHIS2's own numbering | Same | Level map is inverted to recover the instance's real level numbers |
@@ -132,6 +135,23 @@ Recorded because they show what the tests are actually for.
 - **Build** — production build clean
 
 ---
+
+## Migration to PostgreSQL
+
+The platform was built on SQLite and moved to PostgreSQL so it can run on
+Vercel. The change was confined to the data layer, which is what the repository
+boundary exists for:
+
+| Changed | Unchanged |
+|---|---|
+| `src/data/db/client.ts` — pool, schema application, transactions, batching | Every engine in `src/core` |
+| The eight repository modules, now async | Every service's logic |
+| `schema.sql` — Postgres types, JSONB for documents | The intelligence pipeline's behaviour |
+| Call sites awaiting what were synchronous reads | Every component's markup |
+
+No engine, service or component changed what it *does*. All 207 tests pass
+against real PostgreSQL, and each store-backed suite now runs in its own
+schema for isolation.
 
 ## What a next iteration would address
 

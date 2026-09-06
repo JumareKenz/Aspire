@@ -8,17 +8,18 @@ import { listUsers } from '../src/data/repositories/users';
 import { getRootOrgUnit } from '../src/data/repositories/orgUnits';
 import { latestCompletePeriodId } from '../src/data/sync/periods';
 import { getDataMode } from '../src/data/repositories/settings';
+import { closeDb } from '../src/data/db/client';
 
 async function main() {
   await ensureBootstrapped();
 
-  if (getDataMode() !== 'DEMO') {
+  if ((await getDataMode()) !== 'DEMO') {
     console.log('Evaluation cases describe the demo dataset. Current source is DHIS2 — skipping.');
     return;
   }
 
-  const user = listUsers().find((entry) => entry.role === 'ANALYST');
-  const root = getRootOrgUnit();
+  const [users, root] = await Promise.all([listUsers(), getRootOrgUnit()]);
+  const user = users.find((entry) => entry.role === 'ANALYST');
   if (!user || !root) throw new Error('Platform is not bootstrapped.');
 
   const outcomes = await runAllCases(user, {
@@ -42,7 +43,10 @@ async function main() {
   if (failed > 0) process.exit(1);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(() => closeDb())
+  .catch(async (error) => {
+    console.error(error);
+    await closeDb();
+    process.exit(1);
+  });

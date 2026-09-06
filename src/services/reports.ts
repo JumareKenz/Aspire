@@ -87,21 +87,24 @@ interface Assembled {
   findings: QualityFinding[];
 }
 
-function assemble(orgUnitId: string, periodId: string): Assembled | null {
-  const scorecard = getScorecard(orgUnitId, periodId);
+async function assemble(orgUnitId: string, periodId: string): Promise<Assembled | null> {
+  const scorecard = await getScorecard(orgUnitId, periodId);
   if (!scorecard) return null;
   const priorId = previousPeriodId(periodId);
-  const previous = getScorecard(orgUnitId, priorId);
-  const children = getChildScorecards(orgUnitId, periodId);
-  const childrenPrevious = new Map(
-    getChildScorecards(orgUnitId, priorId).map((card) => [card.orgUnitId, card]),
-  );
+  const [previous, children, priorChildren, directChildren, facilities] = await Promise.all([
+    getScorecard(orgUnitId, priorId),
+    getChildScorecards(orgUnitId, periodId),
+    getChildScorecards(orgUnitId, priorId),
+    listChildren(orgUnitId),
+    listDescendants(orgUnitId, 'FACILITY'),
+  ]);
+  const childrenPrevious = new Map(priorChildren.map((card) => [card.orgUnitId, card]));
   const scope = [
     orgUnitId,
-    ...listChildren(orgUnitId).map((child) => child.id),
-    ...listDescendants(orgUnitId, 'FACILITY').map((unit) => unit.id),
+    ...directChildren.map((child) => child.id),
+    ...facilities.map((unit) => unit.id),
   ];
-  const findings = listFindings({ orgUnitIds: scope, status: 'OPEN' });
+  const findings = await listFindings({ orgUnitIds: scope, status: 'OPEN' });
   const contributions = previous ? attributeChange(previous, scorecard) : [];
 
   return {
@@ -136,19 +139,19 @@ function assemble(orgUnitId: string, periodId: string): Assembled | null {
  * engines the screens use. Nothing is written ahead of the data, and a report
  * that has nothing to say says so rather than being padded.
  */
-export function generateReport(
+export async function generateReport(
   type: ReportType,
   orgUnitId: string,
   periodId: string,
-): GeneratedReport | null {
-  const data = assemble(orgUnitId, periodId);
+): Promise<GeneratedReport | null> {
+  const data = await assemble(orgUnitId, periodId);
   if (!data) return null;
   const { scorecard } = data;
 
   const provenance = {
-    mode: getDataMode(),
+    mode: await getDataMode(),
     sourceLabel: getSourceAdapter().label,
-    lastSyncAt: getLastSyncAt(),
+    lastSyncAt: await getLastSyncAt(),
     methodologyVersion: scorecard.methodologyVersion,
     methodologyStatus: scorecard.methodologyStatus,
   };

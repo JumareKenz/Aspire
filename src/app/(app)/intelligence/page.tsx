@@ -23,8 +23,9 @@ export default async function IntelligencePage({
   const context = await resolvePageContext(await searchParams);
   const model = modelStatus();
 
-  const scope = [context.orgUnit.id, ...listChildren(context.orgUnit.id).map((child) => child.id)];
-  const findings = listFindings({ orgUnitIds: scope, status: 'OPEN' });
+  const children = await listChildren(context.orgUnit.id);
+  const scope = [context.orgUnit.id, ...children.map((child) => child.id)];
+  const findings = await listFindings({ orgUnitIds: scope, status: 'OPEN' });
   const quality = rollup(findings);
 
   return (

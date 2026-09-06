@@ -41,21 +41,24 @@ export interface OverviewData {
  * exactly those and nothing else. Everything returned is derived from stored
  * observations; none of it is narrative written ahead of the data.
  */
-export function getOverview(orgUnitId: string, periodId: string): OverviewData | null {
-  const scorecard = getScorecard(orgUnitId, periodId);
+export async function getOverview(
+  orgUnitId: string,
+  periodId: string,
+): Promise<OverviewData | null> {
+  const scorecard = await getScorecard(orgUnitId, periodId);
   if (!scorecard) return null;
 
   const previousId = previousPeriodId(periodId);
-  const previous = getScorecard(orgUnitId, previousId);
+  const [previous, children, previousChildCards, facilities] = await Promise.all([
+    getScorecard(orgUnitId, previousId),
+    getChildScorecards(orgUnitId, periodId),
+    getChildScorecards(orgUnitId, previousId),
+    listDescendants(orgUnitId, 'FACILITY'),
+  ]);
+  const previousChildren = new Map(previousChildCards.map((card) => [card.orgUnitId, card]));
 
-  const children = getChildScorecards(orgUnitId, periodId);
-  const previousChildren = new Map(
-    getChildScorecards(orgUnitId, previousId).map((card) => [card.orgUnitId, card]),
-  );
-
-  const facilities = listDescendants(orgUnitId, 'FACILITY');
   const reportingUnits = facilities.length > 0 ? facilities.map((f) => f.id) : [orgUnitId];
-  const records = getReporting(reportingUnits, [periodId]).filter((record) => record.expected);
+  const records = (await getReporting(reportingUnits, [periodId])).filter((record) => record.expected);
   const received = records.filter((record) => record.reported).length;
   const submittedByUnit = new Map<string, number>();
   for (const record of records) {
@@ -71,7 +74,7 @@ export function getOverview(orgUnitId: string, periodId: string): OverviewData |
   };
 
   const scopeIds = [orgUnitId, ...children.map((child) => child.orgUnitId), ...reportingUnits];
-  const findings = listFindings({ orgUnitIds: scopeIds, status: 'OPEN' });
+  const findings = await listFindings({ orgUnitIds: scopeIds, status: 'OPEN' });
 
   const insights = generateInsights({
     parent: scorecard,
@@ -102,7 +105,7 @@ export function getOverview(orgUnitId: string, periodId: string): OverviewData |
     contributions,
     reporting,
     quality: rollup(findings),
-    history: buildHistory(orgUnitId, periodId),
+    history: await buildHistory(orgUnitId, periodId),
   };
 }
 
@@ -112,20 +115,20 @@ export function getOverview(orgUnitId: string, periodId: string): OverviewData |
  * Each period is scored with the same methodology as the headline figure, so
  * the line and the number can never disagree.
  */
-function buildHistory(orgUnitId: string, periodId: string): { labels: string[]; values: Array<number | null> } {
+async function buildHistory(
+  orgUnitId: string,
+  periodId: string,
+): Promise<{ labels: string[]; values: Array<number | null> }> {
   const WINDOW = 8;
-  const labels: string[] = [];
-  const values: Array<number | null> = [];
   let cursor = periodId;
   const ids: string[] = [];
   for (let i = 0; i < WINDOW; i += 1) {
     ids.unshift(cursor);
     cursor = previousPeriodId(cursor);
   }
-  for (const id of ids) {
-    const card = getScorecard(orgUnitId, id);
-    labels.push(card?.periodLabel ?? id);
-    values.push(card?.overallScore ?? null);
-  }
-  return { labels, values };
+  const cards = await Promise.all(ids.map((id) => getScorecard(orgUnitId, id)));
+  return {
+    labels: cards.map((card, index) => card?.periodLabel ?? ids[index]),
+    values: cards.map((card) => card?.overallScore ?? null),
+  };
 }

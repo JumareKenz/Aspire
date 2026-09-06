@@ -1,15 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { createSchema, dropSchema, isolatedSchema } from '../helpers/db';
 
-// Permission boundaries are enforced in the service layer, so they are testable
-// without going through HTTP. These are the checks that matter: a scoped user
-// must not be able to read, ask about or act on a geography outside their scope.
-const dir = mkdtempSync(join(tmpdir(), 'aspire-perms-'));
-process.env.ASPIRE_DB_PATH = join(dir, 'test.db');
-
-const { closeDb } = await import('@/data/db/client');
+const schema = isolatedSchema();
 const { ensureBootstrapped } = await import('@/data/bootstrap');
 const { assertOrgUnitInScope, resolveScope, ScopeError } = await import('@/auth/server');
 const { createUser, listUsers } = await import('@/data/repositories/users');
@@ -26,13 +18,14 @@ let scopedLgaId: string;
 let rootId: string;
 
 beforeAll(async () => {
+  await createSchema(schema);
   await ensureBootstrapped();
-  national = listUsers().find((user) => user.role === 'ANALYST')!;
-  rootId = getRootOrgUnit()!.id;
-  const lgas = listOrgUnits('LGA');
+  const [users, root, lgas] = await Promise.all([listUsers(), getRootOrgUnit(), listOrgUnits('LGA')]);
+  national = users.find((user) => user.role === 'ANALYST')!;
+  rootId = root!.id;
   scopedLgaId = lgas[0].id;
   otherLgaId = lgas[1].id;
-  scoped = createUser({
+  scoped = await createUser({
     email: 'scoped@aspire.local',
     name: 'Scoped officer',
     role: 'ANALYST',
@@ -41,52 +34,44 @@ beforeAll(async () => {
   });
 }, 120_000);
 
-afterAll(() => {
-  closeDb();
-  rmSync(dir, { recursive: true, force: true });
+afterAll(async () => {
+  await dropSchema(schema);
 });
 
 describe('geographic scope', () => {
-  it('lets a national user reach everything', () => {
-    const scope = resolveScope(national);
+  it('lets a national user reach everything', async () => {
+    const scope = await resolveScope(national);
     expect(scope.root.id).toBe(rootId);
     expect(scope.ids).toContain(otherLgaId);
-    expect(() => assertOrgUnitInScope(national, otherLgaId)).not.toThrow();
+    await expect(assertOrgUnitInScope(national, otherLgaId)).resolves.toBeTruthy();
   });
 
-  it('opens a scoped user on their own geography, not the state above it', () => {
-    const scope = resolveScope(scoped);
+  it('opens a scoped user on their own geography, not the state above it', async () => {
+    const scope = await resolveScope(scoped);
     expect(scope.root.id).toBe(scopedLgaId);
     expect(scope.ids).not.toContain(otherLgaId);
   });
 
-  it('includes a scoped user’s descendants', () => {
-    const scope = resolveScope(scoped);
-    const facilities = listOrgUnits('FACILITY').filter((unit) => unit.parentId === scopedLgaId);
+  it('includes a scoped user’s descendants', async () => {
+    const scope = await resolveScope(scoped);
+    const facilities = (await listOrgUnits('FACILITY')).filter((unit) => unit.parentId === scopedLgaId);
     expect(facilities.length).toBeGreaterThan(0);
     for (const facility of facilities) expect(scope.ids).toContain(facility.id);
   });
 
-  it('refuses a sibling geography with a 403', () => {
-    expect(() => assertOrgUnitInScope(scoped, otherLgaId)).toThrow(ScopeError);
-    try {
-      assertOrgUnitInScope(scoped, otherLgaId);
-    } catch (error) {
-      expect((error as InstanceType<typeof ScopeError>).status).toBe(403);
-    }
+  it('refuses a sibling geography with a 403', async () => {
+    await expect(assertOrgUnitInScope(scoped, otherLgaId)).rejects.toBeInstanceOf(ScopeError);
+    await expect(assertOrgUnitInScope(scoped, otherLgaId)).rejects.toMatchObject({ status: 403 });
   });
 
-  it('refuses the parent above the scope', () => {
-    expect(() => assertOrgUnitInScope(scoped, rootId)).toThrow(ScopeError);
+  it('refuses the parent above the scope', async () => {
+    await expect(assertOrgUnitInScope(scoped, rootId)).rejects.toBeInstanceOf(ScopeError);
   });
 
-  it('reports an unknown geography as 404, not 403', () => {
-    try {
-      assertOrgUnitInScope(national, 'no-such-unit');
-      throw new Error('should have thrown');
-    } catch (error) {
-      expect((error as InstanceType<typeof ScopeError>).status).toBe(404);
-    }
+  it('reports an unknown geography as 404, not 403', async () => {
+    await expect(assertOrgUnitInScope(national, 'no-such-unit')).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 
@@ -100,8 +85,9 @@ describe('scope inside the intelligence pipeline', () => {
   });
 
   it('drops out-of-scope geographies from a comparison rather than answering about them', async () => {
-    const other = listOrgUnits('LGA').find((unit) => unit.id === otherLgaId)!;
-    const mine = listOrgUnits('LGA').find((unit) => unit.id === scopedLgaId)!;
+    const lgas = await listOrgUnits('LGA');
+    const other = lgas.find((unit) => unit.id === otherLgaId)!;
+    const mine = lgas.find((unit) => unit.id === scopedLgaId)!;
     const answer = await answerQuestion(`Compare ${mine.name} and ${other.name}`, scoped, {
       orgUnitId: scopedLgaId,
       periodId: latestCompletePeriodId(),

@@ -11,7 +11,7 @@ import { ok, withUser } from '@/lib/api';
  */
 export const POST = withUser(async (user) => {
   const result = await runSync();
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'admin.sync',

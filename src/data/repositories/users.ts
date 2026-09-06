@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { getDb } from '../db/client';
+import { execute, query, queryOne } from '../db/client';
 
 /**
  * Three user tiers, as defined by the product. LGA, M&E, programme and
@@ -28,9 +28,14 @@ interface Row {
   role: string;
   scope: string;
   password_hash: string;
-  active: number;
-  created_at: string;
-  last_login_at: string | null;
+  active: boolean;
+  created_at: Date | string;
+  last_login_at: Date | string | null;
+}
+
+function iso(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return typeof value === 'string' ? value : value.toISOString();
 }
 
 function toUser(row: Row): User {
@@ -40,9 +45,9 @@ function toUser(row: Row): User {
     name: row.name,
     role: row.role as Role,
     scope: row.scope ? row.scope.split(',').filter(Boolean) : [],
-    active: row.active === 1,
-    createdAt: row.created_at,
-    lastLoginAt: row.last_login_at,
+    active: row.active,
+    createdAt: iso(row.created_at) ?? '',
+    lastLoginAt: iso(row.last_login_at),
   };
 }
 
@@ -62,31 +67,27 @@ export function verifyPassword(password: string, stored: string): boolean {
   return timingSafeEqual(derived, expected);
 }
 
-export function listUsers(): User[] {
-  const rows = getDb().prepare('SELECT * FROM users ORDER BY name').all() as Row[];
+export async function listUsers(): Promise<User[]> {
+  const rows = await query<Row>('SELECT * FROM users ORDER BY name');
   return rows.map(toUser);
 }
 
-export function getUserById(id: string): User | null {
-  const row = getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined;
+export async function getUserById(id: string): Promise<User | null> {
+  const row = await queryOne<Row>('SELECT * FROM users WHERE id = $1', [id]);
   return row ? toUser(row) : null;
 }
 
-export function getUserByEmail(email: string): User | null {
-  const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase()) as
-    | Row
-    | undefined;
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const row = await queryOne<Row>('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
   return row ? toUser(row) : null;
 }
 
 /** Verifies credentials. Returns null for unknown, inactive or wrong-password. */
-export function authenticate(email: string, password: string): User | null {
-  const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase()) as
-    | Row
-    | undefined;
-  if (!row || row.active !== 1) return null;
+export async function authenticate(email: string, password: string): Promise<User | null> {
+  const row = await queryOne<Row>('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+  if (!row || !row.active) return null;
   if (!verifyPassword(password, row.password_hash)) return null;
-  getDb().prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), row.id);
+  await execute('UPDATE users SET last_login_at = NOW() WHERE id = $1', [row.id]);
   return toUser(row);
 }
 
@@ -98,33 +99,43 @@ export interface CreateUserInput {
   password: string;
 }
 
-export function createUser(input: CreateUserInput): User {
+export async function createUser(input: CreateUserInput): Promise<User> {
   const id = randomUUID();
-  const now = new Date().toISOString();
-  getDb()
-    .prepare(
-      `INSERT INTO users (id, email, name, role, scope, password_hash, active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-    )
-    .run(id, input.email.toLowerCase(), input.name, input.role, input.scope.join(','), hashPassword(input.password), now);
-  const created = getUserById(id);
+  await execute(
+    `INSERT INTO users (id, email, name, role, scope, password_hash, active, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())`,
+    [
+      id,
+      input.email.toLowerCase(),
+      input.name,
+      input.role,
+      input.scope.join(','),
+      hashPassword(input.password),
+    ],
+  );
+  const created = await getUserById(id);
   if (!created) throw new Error('User creation failed');
   return created;
 }
 
-export function updateUser(
+export async function updateUser(
   id: string,
   changes: Partial<Pick<User, 'name' | 'role' | 'scope' | 'active'>>,
-): User | null {
-  const existing = getUserById(id);
+): Promise<User | null> {
+  const existing = await getUserById(id);
   if (!existing) return null;
   const merged = { ...existing, ...changes };
-  getDb()
-    .prepare('UPDATE users SET name = ?, role = ?, scope = ?, active = ? WHERE id = ?')
-    .run(merged.name, merged.role, merged.scope.join(','), merged.active ? 1 : 0, id);
+  await execute('UPDATE users SET name = $1, role = $2, scope = $3, active = $4 WHERE id = $5', [
+    merged.name,
+    merged.role,
+    merged.scope.join(','),
+    merged.active,
+    id,
+  ]);
   return getUserById(id);
 }
 
-export function countUsers(): number {
-  return (getDb().prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+export async function countUsers(): Promise<number> {
+  const row = await queryOne<{ n: string }>('SELECT COUNT(*) AS n FROM users');
+  return Number(row?.n ?? 0);
 }

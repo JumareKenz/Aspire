@@ -21,7 +21,7 @@ export async function getCurrentUser(): Promise<User | null> {
   if (!token) return null;
   const claims: SessionClaims | null = await readSessionToken(token);
   if (!claims) return null;
-  const user = getUserById(claims.sub);
+  const user = await getUserById(claims.sub);
   if (!user || !user.active) return null;
   return user;
 }
@@ -46,10 +46,9 @@ export interface Scope {
   root: OrgUnit;
 }
 
-export function resolveScope(user: User): Scope {
-  const all = listOrgUnits();
+export async function resolveScope(user: User): Promise<Scope> {
+  const [all, fallbackRoot] = await Promise.all([listOrgUnits(), getRootOrgUnit()]);
   const permitted = all.filter((unit) => isInScope(user.scope, unit.path));
-  const fallbackRoot = getRootOrgUnit();
 
   // A scoped user's root is the highest unit they can see, so an LGA-scoped
   // user opens on their own LGA rather than on a state they cannot inspect.
@@ -66,8 +65,8 @@ export function resolveScope(user: User): Scope {
 }
 
 /** Throws when a user requests an org unit outside their scope. */
-export function assertOrgUnitInScope(user: User, orgUnitId: string): OrgUnit {
-  const unit = getOrgUnit(orgUnitId);
+export async function assertOrgUnitInScope(user: User, orgUnitId: string): Promise<OrgUnit> {
+  const unit = await getOrgUnit(orgUnitId);
   if (!unit) {
     throw new ScopeError(`Unknown organisation unit: ${orgUnitId}`, 404);
   }

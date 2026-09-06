@@ -28,11 +28,11 @@ export default async function ReportViewPage({
   const periodId = first(params.period) ?? latestCompletePeriodId();
   if (!type || !REPORT_TYPES.includes(type) || !orgUnitId) notFound();
 
-  assertOrgUnitInScope(user, orgUnitId);
-  const report = generateReport(type, orgUnitId, periodId);
+  await assertOrgUnitInScope(user, orgUnitId);
+  const report = await generateReport(type, orgUnitId, periodId);
   if (!report) notFound();
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'reports.generate',

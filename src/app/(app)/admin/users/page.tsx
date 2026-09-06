@@ -13,8 +13,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
   const user = await requirePermission('admin.view');
-  const users = listUsers();
-  const scopeChoices = listOrgUnits()
+  const [users, orgUnits] = await Promise.all([listUsers(), listOrgUnits()]);
+  const scopeChoices = orgUnits
     .filter((unit) => unit.level !== 'FACILITY')
     .map((unit) => ({ id: unit.id, name: unit.name, level: unit.level }));
 

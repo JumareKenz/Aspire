@@ -36,14 +36,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     : [];
 
   const adapter = getSourceAdapter();
-  const mode = getDataMode();
+  const [mode, lastSyncAt] = await Promise.all([getDataMode(), getLastSyncAt()]);
 
   return (
     <AppShell
       user={{ name: user.name, email: user.email, role: user.role }}
       navigation={navigation}
       adminNavigation={adminNavigation}
-      dataMode={{ mode, label: adapter.label, lastSyncAt: getLastSyncAt() }}
+      dataMode={{ mode, label: adapter.label, lastSyncAt }}
     >
       {children}
     </AppShell>

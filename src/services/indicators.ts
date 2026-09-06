@@ -48,19 +48,22 @@ export interface IndicatorDetail {
  * measured from, the units underneath that moved most, the quality findings
  * that touch it, and a forecast only where the history supports one.
  */
-export function getIndicatorDetail(
+export async function getIndicatorDetail(
   orgUnitId: string,
   indicatorId: string,
   periodId: string,
-): IndicatorDetail | null {
-  const indicator = getIndicator(indicatorId);
-  const orgUnit = getOrgUnit(orgUnitId);
+): Promise<IndicatorDetail | null> {
+  const [indicator, orgUnit] = await Promise.all([getIndicator(indicatorId), getOrgUnit(orgUnitId)]);
   if (!indicator || !orgUnit) return null;
 
-  const methodology = getActiveMethodology();
+  const methodology = await getActiveMethodology();
   const periods = periodRange(periodId, HISTORY_PERIODS);
-  const series = getSeries(orgUnitId, periods, [indicatorId])[indicatorId] ?? [];
-  const target = getEffectiveTargets(orgUnitId, periodId)[indicatorId] ?? indicator.defaultTarget;
+  const [seriesByIndicator, targets] = await Promise.all([
+    getSeries(orgUnitId, periods, [indicatorId]),
+    getEffectiveTargets(orgUnitId, periodId),
+  ]);
+  const series = seriesByIndicator[indicatorId] ?? [];
+  const target = targets[indicatorId] ?? indicator.defaultTarget;
   const value = series[series.length - 1] ?? null;
   const lowerIsBetter = indicator.directionality === 'LOWER_IS_BETTER';
 
@@ -69,8 +72,8 @@ export function getIndicatorDetail(
     lowerIsBetter,
   });
 
-  const children = listChildren(orgUnitId);
-  const childSeries = getSeriesForUnits(
+  const children = await listChildren(orgUnitId);
+  const childSeries = await getSeriesForUnits(
     children.map((child) => child.id),
     periods,
     [indicatorId],
@@ -133,9 +136,11 @@ export function getIndicatorDetail(
       drivers,
     }),
     contributors,
-    findings: listFindings({
-      orgUnitIds: [orgUnitId, ...children.map((child) => child.id)],
-      status: 'OPEN',
-    }).filter((finding) => finding.indicatorId === indicatorId),
+    findings: (
+      await listFindings({
+        orgUnitIds: [orgUnitId, ...children.map((child) => child.id)],
+        status: 'OPEN',
+      })
+    ).filter((finding) => finding.indicatorId === indicatorId),
   };
 }

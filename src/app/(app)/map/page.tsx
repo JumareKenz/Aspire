@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function MapPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const context = await resolvePageContext(await searchParams);
-  const data = getMapData(context.orgUnit.id, context.periodId);
+  const data = await getMapData(context.orgUnit.id, context.periodId);
 
   return (
     <>

@@ -157,18 +157,20 @@ function loadBoundaries(): BoundaryFeature[] | null {
 const WIDTH = 720;
 const HEIGHT = 520;
 
-export function getMapData(orgUnitId: string, periodId: string): MapData {
-  const children = listChildren(orgUnitId);
-  const cards = getChildScorecards(orgUnitId, periodId);
-  const previous = new Map(
-    getChildScorecards(orgUnitId, previousPeriodId(periodId)).map((card) => [card.orgUnitId, card]),
-  );
+export async function getMapData(orgUnitId: string, periodId: string): Promise<MapData> {
+  const [children, cards, previousCards] = await Promise.all([
+    listChildren(orgUnitId),
+    getChildScorecards(orgUnitId, periodId),
+    getChildScorecards(orgUnitId, previousPeriodId(periodId)),
+  ]);
+  const previous = new Map(previousCards.map((card) => [card.orgUnitId, card]));
   const cardById = new Map(cards.map((card) => [card.orgUnitId, card]));
   const findingCounts = new Map<string, number>();
-  for (const finding of listFindings({
+  const openFindings = await listFindings({
     orgUnitIds: children.map((child) => child.id),
     status: 'OPEN',
-  })) {
+  });
+  for (const finding of openFindings) {
     findingCounts.set(finding.orgUnitId, (findingCounts.get(finding.orgUnitId) ?? 0) + 1);
   }
 

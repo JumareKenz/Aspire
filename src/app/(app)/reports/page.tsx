@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const context = await resolvePageContext(await searchParams);
-  const mode = getDataMode();
+  const mode = await getDataMode();
 
   return (
     <>

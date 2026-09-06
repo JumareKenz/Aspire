@@ -1,4 +1,5 @@
 import type { Observation, OrgUnit } from '@/core/model/types';
+import type { IndicatorDefinition } from '@/core/registry/types';
 import { runQualityScan, type DetectorContext, type SeriesInput } from '@/core/quality/detectors';
 import { listIndicators, seedRegistryIfEmpty } from '../repositories/registry';
 import { upsertOrgUnits } from '../repositories/orgUnits';
@@ -31,11 +32,11 @@ export interface SyncResult {
  * can show what happened and when, including failures.
  */
 export async function runSync(): Promise<SyncResult> {
-  seedRegistryIfEmpty();
+  await seedRegistryIfEmpty();
   const adapter = getSourceAdapter();
-  const runId = startSyncRun(adapter.mode);
+  const runId = await startSyncRun(adapter.mode);
   const periods = analysisPeriods();
-  const indicators = listIndicators();
+  const indicators = await listIndicators();
 
   try {
     const orgUnits = await adapter.fetchOrgUnits();
@@ -45,11 +46,11 @@ export async function runSync(): Promise<SyncResult> {
     const observations = await adapter.fetchObservations(request);
     const reporting = await adapter.fetchReporting({ ...request, datasets });
 
-    upsertPeriods(periods);
-    upsertOrgUnits(orgUnits);
-    upsertObservations(observations);
-    upsertReporting(reporting);
-    upsertTargets(
+    await upsertPeriods(periods);
+    await upsertOrgUnits(orgUnits);
+    await upsertObservations(observations);
+    await upsertReporting(reporting);
+    await upsertTargets(
       indicators.map((indicator) => ({
         indicatorId: indicator.id,
         orgUnitId: null,
@@ -59,12 +60,11 @@ export async function runSync(): Promise<SyncResult> {
     );
 
     const findings = scanQuality(orgUnits, observations, reporting, periods, indicators);
-    replaceFindings(findings);
+    await replaceFindings(findings);
 
-    setDataMode(adapter.mode);
-    const finishedAt = new Date().toISOString();
-    setLastSyncAt(finishedAt);
-    finishSyncRun(runId, {
+    await setDataMode(adapter.mode);
+    await setLastSyncAt(new Date().toISOString());
+    await finishSyncRun(runId, {
       status: 'SUCCESS',
       orgUnits: orgUnits.length,
       observations: observations.length,
@@ -82,7 +82,7 @@ export async function runSync(): Promise<SyncResult> {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Synchronisation failed.';
-    finishSyncRun(runId, { status: 'FAILED', message });
+    await finishSyncRun(runId, { status: 'FAILED', message });
     return { ok: false, mode: adapter.mode, orgUnits: 0, observations: 0, findings: 0, message };
   }
 }
@@ -95,7 +95,7 @@ function scanQuality(
   observations: Observation[],
   reporting: Parameters<typeof upsertReporting>[0],
   periods: ReturnType<typeof analysisPeriods>,
-  indicators: ReturnType<typeof listIndicators>,
+  indicators: IndicatorDefinition[],
 ) {
   const ctx: DetectorContext = {
     orgUnits: new Map(orgUnits.map((unit) => [unit.id, unit])),

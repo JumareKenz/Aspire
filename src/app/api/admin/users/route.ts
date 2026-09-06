@@ -19,14 +19,14 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
 });
 
-export const GET = withUser(async () => ok(listUsers()), 'admin.view');
+export const GET = withUser(async () => ok(await listUsers()), 'admin.view');
 
 export const POST = withUser(async (user, request) => {
   const body = createSchema.parse(await request.json());
-  if (getUserByEmail(body.email)) throw new ApiError('An account with that email already exists.', 409);
+  if (await getUserByEmail(body.email)) throw new ApiError('An account with that email already exists.', 409);
 
-  const created = createUser(body);
-  recordAudit({
+  const created = await createUser(body);
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'admin.user_create',
@@ -44,7 +44,7 @@ export const PATCH = withUser(async (user, request) => {
     throw new ApiError('You cannot remove your own administrator access.', 400);
   }
 
-  const updated = updateUser(body.id, {
+  const updated = await updateUser(body.id, {
     name: body.name,
     role: body.role,
     scope: body.scope,
@@ -52,7 +52,7 @@ export const PATCH = withUser(async (user, request) => {
   });
   if (!updated) throw new ApiError('That account no longer exists.', 404);
 
-  recordAudit({
+  await recordAudit({
     actorId: user.id,
     actorEmail: user.email,
     action: 'admin.user_update',

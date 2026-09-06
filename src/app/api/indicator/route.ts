@@ -17,9 +17,9 @@ export const GET = withUser(async (user, request) => {
   if (!orgUnitId || !indicatorId || !periodId) {
     throw new ApiError('orgUnit, indicator and period are all required.', 400);
   }
-  assertOrgUnitInScope(user, orgUnitId);
+  await assertOrgUnitInScope(user, orgUnitId);
 
-  const detail = getIndicatorDetail(orgUnitId, indicatorId, periodId);
+  const detail = await getIndicatorDetail(orgUnitId, indicatorId, periodId);
   if (!detail) throw new ApiError('That indicator is not configured, or the geography is unknown.', 404);
   return ok(detail);
 }, 'intelligence.view');
