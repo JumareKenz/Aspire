@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "tsx scripts/seed.ts",
-    "sync": "tsx scripts/sync.ts",
-    "eval:ai": "tsx scripts/evaluate-intelligence.ts"
+    "seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
+    "sync": "tsx --env-file-if-exists=.env.local scripts/sync.ts",
+    "eval:ai": "tsx --env-file-if-exists=.env.local scripts/evaluate-intelligence.ts"
   },
   "dependencies": {
     "ai": "^6.0.277",
