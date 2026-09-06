@@ -1,26 +1,341 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   ASPIRE-GAC design tokens
+
+   One place defines colour, type, spacing and elevation. Components reference
+   tokens, never raw values, so the whole product can be rebranded — including
+   with official HIVA assets when they are supplied — by editing this file.
+
+   Brand values below are neutral placeholders. No official HIVA palette was
+   available in the repository, and inventing one would be worse than admitting
+   it: `--brand-*` is the only place a brand colour is defined.
+   ========================================================================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  /* Brand — replace with official HIVA values when supplied. */
+  --brand-900: #05312f;
+  --brand-800: #06403d;
+  --brand-700: #075550;
+  --brand-600: #0b6b64;
+  --brand-500: #10857c;
+  --brand-400: #3ba79d;
+  --brand-200: #a9d8d2;
+  --brand-100: #ddefec;
+  --brand-050: #f0f8f7;
+
+  /* Neutrals — a slightly warm grey reads calmer than pure grey on large surfaces. */
+  --ink-900: #14171a;
+  --ink-800: #22272c;
+  --ink-700: #333a41;
+  --ink-600: #4a535c;
+  --ink-500: #667079;
+  --ink-400: #8b949d;
+  --ink-300: #b9c0c7;
+  --ink-200: #d9dee3;
+  --ink-100: #eceff2;
+  --ink-050: #f5f7f9;
+
+  --surface: #ffffff;
+  --surface-sunken: #f6f8fa;
+  --surface-raised: #ffffff;
+  --canvas: #f2f5f7;
+  --border: var(--ink-200);
+  --border-strong: var(--ink-300);
+
+  --text-primary: var(--ink-900);
+  --text-secondary: var(--ink-600);
+  --text-tertiary: var(--ink-500);
+  --text-inverse: #ffffff;
+
+  /* Status — always paired with a label, icon or shape, never colour alone. */
+  --positive-700: #10603a;
+  --positive-600: #15803d;
+  --positive-100: #dcfce7;
+  --warning-700: #8a5a06;
+  --warning-600: #b45309;
+  --warning-100: #fef3c7;
+  --concern-700: #9b1c1c;
+  --concern-600: #c2352c;
+  --concern-100: #fee2e2;
+  --info-700: #1d4ed8;
+  --info-600: #2563eb;
+  --info-100: #dbeafe;
+
+  /* Chart fills for status. Kept separate from the text tokens: a fill needs
+     to read clearly at small sizes against the surface, while the text token
+     needs to clear the contrast bar for body copy. Both always ship with a
+     written label, so neither carries meaning on its own. */
+  --status-fill-positive: #17a34a;
+  --status-fill-warning: #de9310;
+  --status-fill-concern: #d64545;
+  --status-fill-none: var(--ink-300);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 32 / 0.04), 0 1px 1px rgb(16 24 32 / 0.03);
+  --shadow-md: 0 4px 12px -2px rgb(16 24 32 / 0.08), 0 2px 4px -2px rgb(16 24 32 / 0.04);
+  --shadow-lg: 0 16px 40px -12px rgb(16 24 32 / 0.18);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+
+  /* ------------------------------------------------------------------
+     Data visualisation roles.
+
+     The categorical order was validated with the data-viz palette checker
+     in both light and dark modes: lightness band, chroma floor, adjacent-pair
+     CVD separation, normal-vision separation and contrast against the chart
+     surface all pass. The first three slots also clear all-pairs separation,
+     which is why comparison views cap at three series before folding the
+     remainder into "Other".
+     ------------------------------------------------------------------ */
+  --viz-series-1: #0d9488;
+  --viz-series-2: #4a3aa7;
+  --viz-series-3: #eb6834;
+  --viz-series-4: #2a78d6;
+
+  /* Sequential ramp for magnitude (choropleth, heatmap): one hue, light to dark. */
+  --viz-seq-1: #d9f0ed;
+  --viz-seq-2: #a5ded6;
+  --viz-seq-3: #66c5ba;
+  --viz-seq-4: #2ba597;
+  --viz-seq-5: #0d8479;
+  --viz-seq-6: #08605a;
+
+  /* Diverging: two hues about a neutral zero. Always drawn against a zero
+     baseline with a signed label, so position and text carry the polarity and
+     colour only reinforces it. */
+  --viz-diverge-positive: #15803d;
+  --viz-diverge-negative: #c2352c;
+  --viz-diverge-neutral: #d9dee3;
+
+  --viz-grid: color-mix(in srgb, var(--ink-300) 45%, transparent);
+  --viz-axis: var(--ink-400);
+  --viz-surface: var(--surface);
+  --viz-muted: color-mix(in srgb, var(--ink-400) 35%, transparent);
+
+  --header-height: 56px;
+  --sidebar-width: 232px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root[data-theme="dark"],
+:root:not([data-theme="light"]) {
+  /* Dark values are applied only under the media query below or an explicit
+     data-theme, so light remains the definitive palette. */
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #14181c;
+    --surface-sunken: #101417;
+    --surface-raised: #191e23;
+    --canvas: #0c0f12;
+    --border: #262d34;
+    --border-strong: #333c44;
+    --text-primary: #eef1f4;
+    --text-secondary: #a8b1ba;
+    --text-tertiary: #808b95;
+    --ink-100: #1c2126;
+    --ink-050: #171b1f;
+    --ink-200: #262d34;
+    --brand-100: #0d2a29;
+    --brand-050: #0b2321;
+    --brand-200: #14504b;
+    --positive-100: #0c2a1a;
+    --warning-100: #2e2208;
+    --concern-100: #2e1414;
+    --info-100: #10203f;
+    --positive-600: #4ade80;
+    --positive-700: #86efac;
+    --warning-600: #fbbf24;
+    --warning-700: #fcd34d;
+    --concern-600: #f87171;
+    --concern-700: #fca5a5;
+    --info-600: #60a5fa;
+    --info-700: #93c5fd;
+    --viz-series-1: #12a294;
+    --viz-series-2: #7d70e8;
+    --viz-series-3: #dd6836;
+    --viz-series-4: #4a8fe0;
+    --viz-seq-1: #0d2b29;
+    --viz-seq-2: #124a44;
+    --viz-seq-3: #16685e;
+    --viz-seq-4: #17877a;
+    --viz-seq-5: #23a496;
+    --viz-seq-6: #5cc6ba;
+    --viz-diverge-positive: #4ade80;
+    --viz-diverge-negative: #f87171;
+    --viz-diverge-neutral: #333c44;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.6);
   }
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #14181c;
+  --surface-sunken: #101417;
+  --surface-raised: #191e23;
+  --canvas: #0c0f12;
+  --border: #262d34;
+  --border-strong: #333c44;
+  --text-primary: #eef1f4;
+  --text-secondary: #a8b1ba;
+  --text-tertiary: #808b95;
+  --ink-100: #1c2126;
+  --ink-050: #171b1f;
+  --ink-200: #262d34;
+  --brand-100: #0d2a29;
+  --brand-050: #0b2321;
+  --brand-200: #14504b;
+  --positive-100: #0c2a1a;
+  --warning-100: #2e2208;
+  --concern-100: #2e1414;
+  --info-100: #10203f;
+  --positive-600: #4ade80;
+  --positive-700: #86efac;
+  --warning-600: #fbbf24;
+  --warning-700: #fcd34d;
+  --concern-600: #f87171;
+  --concern-700: #fca5a5;
+  --info-600: #60a5fa;
+  --info-700: #93c5fd;
+  --status-fill-positive: #34d399;
+  --status-fill-warning: #f5b53d;
+  --status-fill-concern: #f87171;
+  --viz-series-1: #12a294;
+  --viz-series-2: #7d70e8;
+  --viz-series-3: #dd6836;
+  --viz-series-4: #4a8fe0;
+  --viz-seq-1: #0d2b29;
+  --viz-seq-2: #124a44;
+  --viz-seq-3: #16685e;
+  --viz-seq-4: #17877a;
+  --viz-seq-5: #23a496;
+  --viz-seq-6: #5cc6ba;
+  --viz-diverge-positive: #4ade80;
+  --viz-diverge-negative: #f87171;
+  --viz-diverge-neutral: #333c44;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-canvas: var(--canvas);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+  --color-brand: var(--brand-600);
+  --color-brand-strong: var(--brand-700);
+  --color-brand-soft: var(--brand-100);
+  --color-positive: var(--positive-600);
+  --color-warning: var(--warning-600);
+  --color-concern: var(--concern-600);
+  --color-info: var(--info-600);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-card: var(--radius-lg);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+}
+
+/* Figures are read in columns and compared against each other, so they are
+   always tabular and never allowed to reflow between renders. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.011em;
+  color: var(--text-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Motion communicates state change; it never decorates. Users who ask for less
+   motion get none. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes aspire-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.animate-enter {
+  animation: aspire-fade-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes aspire-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--ink-100) 25%,
+    var(--ink-050) 37%,
+    var(--ink-100) 63%
+  );
+  background-size: 200% 100%;
+  animation: aspire-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--ink-300);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--ink-400); background-clip: content-box; }
+
+@media print {
+  body { background: #fff; }
+  .no-print { display: none !important; }
 }
