@@ -15,8 +15,11 @@ import { env } from '@/lib/env';
  * instance was built. A national deployment usually roots at the country; a
  * state deployment roots at the state, so its level 1 *is* the state.
  *
- * The Gombe State instance this platform targets is organised
- * State → LGA → Ward → Community → Facility, so it is the default here.
+ * The DHIS2 instance currently configured is a state-rooted deployment
+ * organised State → LGA → Ward → Community → Facility, so that is the default.
+ * ASPIRE-GAC covers Bauchi and Sokoto, which in a state-rooted instance means
+ * one connection per state; a single instance holding both would be rooted a
+ * level higher and needs the override below. See docs/SOW_GAP_ANALYSIS.md.
  * `DHIS2_LEVEL_MAP` overrides it for any other shape, e.g.
  * `DHIS2_LEVEL_MAP=1:COUNTRY,2:STATE,3:LGA,4:FACILITY` for a national instance.
  *

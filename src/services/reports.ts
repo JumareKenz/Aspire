@@ -10,10 +10,12 @@ import { listChildren, listDescendants } from '@/data/repositories/orgUnits';
 import { getDataMode, getLastSyncAt } from '@/data/repositories/settings';
 import { getSourceAdapter } from '@/data/sources';
 import { getChildScorecards, getScorecard } from './scorecards';
+import { compareStates, type StateComparison } from './states';
 
 export const REPORT_TYPES = [
   'EXECUTIVE_BRIEF',
   'QUARTERLY_PERFORMANCE',
+  'STATE_COMPARISON',
   'AREA_PERFORMANCE',
   'DATA_QUALITY',
   'INTELLIGENCE_SUMMARY',
@@ -30,6 +32,12 @@ export const REPORT_META: Record<ReportType, { title: string; description: strin
     title: 'Quarterly SRHR performance report',
     description: 'Full scorecard, domain detail, area ranking and period-on-period movement.',
     audience: 'Programme management and technical review',
+  },
+  STATE_COMPARISON: {
+    title: 'Cross-state comparison',
+    description:
+      'The programme states side by side: overall score, every domain, where the gap is widest, and where they are moving in opposite directions.',
+    audience: 'Programme leadership and cross-state coordination',
   },
   AREA_PERFORMANCE: {
     title: 'Area performance report',
@@ -148,6 +156,17 @@ export async function generateReport(
   if (!data) return null;
   const { scorecard } = data;
 
+  // A cross-state report is only producible where the selected geography
+  // actually contains more than one state. The caller has already checked the
+  // geography against the user's scope, so states beneath it are states they
+  // may read; there is nothing further to authorise here, and nothing to leak
+  // when there is only one.
+  let comparison: StateComparison | null = null;
+  if (type === 'STATE_COMPARISON') {
+    comparison = await compareStates(await listDescendants(orgUnitId, 'STATE'), periodId);
+    if (!comparison) return null;
+  }
+
   const provenance = {
     mode: await getDataMode(),
     sourceLabel: getSourceAdapter().label,
@@ -170,6 +189,8 @@ export async function generateReport(
       return { ...base, sections: executiveBrief(data) };
     case 'QUARTERLY_PERFORMANCE':
       return { ...base, sections: quarterlyPerformance(data) };
+    case 'STATE_COMPARISON':
+      return { ...base, sections: stateComparisonReport(comparison!) };
     case 'AREA_PERFORMANCE':
       return { ...base, sections: areaPerformance(data) };
     case 'DATA_QUALITY':
@@ -415,4 +436,108 @@ function intelligenceSummary(data: Assembled): ReportSection[] {
           : ['No recommendation met the evidence threshold this period.'],
     },
   ];
+}
+
+/**
+ * The cross-state comparison report.
+ *
+ * Everything here is read off the same `compareStates` result the Overview
+ * renders, so a printed copy and the screen cannot disagree. Where a figure is
+ * not publishable it is left blank rather than filled with a zero.
+ */
+function stateComparisonReport(comparison: StateComparison): ReportSection[] {
+  const { states, domains, widestGaps, diverging, periodLabel } = comparison;
+  const ranked = [...states].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const leader = ranked[0];
+  const trailer = ranked[ranked.length - 1];
+  const gap =
+    leader.score !== null && trailer.score !== null
+      ? Math.round((leader.score - trailer.score) * 10) / 10
+      : null;
+
+  const sections: ReportSection[] = [
+    {
+      heading: 'Overall',
+      paragraphs: [
+        gap === null
+          ? `Not every state has a publishable overall score for ${periodLabel}, so the states cannot be ranked against one another for this period.`
+          : `For ${periodLabel}, ${leader.name} scored ${leader.score} out of 100 and ${trailer.name} scored ${trailer.score}, a difference of ${gap} points. Both are scored on the same methodology and the same indicator set, so the difference is comparable.`,
+        `Data confidence is ${states
+          .map((state) => `${state.dataConfidence}% in ${state.name}`)
+          .join(' and ')}. A comparison is only as good as the weaker of the two.`,
+      ],
+      table: {
+        caption: `Overall performance by state, ${periodLabel}`,
+        columns: [
+          'State',
+          'Overall score',
+          'Status',
+          'Change on previous period',
+          'Data confidence (%)',
+          'Indicator coverage (%)',
+        ],
+        rows: states.map((state) => [
+          state.name,
+          state.score,
+          state.status.replace('_', ' ').toLowerCase(),
+          state.changePoints,
+          state.dataConfidence,
+          Math.round(state.coverage * 100),
+        ]),
+      },
+    },
+    {
+      heading: 'By domain',
+      paragraphs: [
+        widestGaps.length > 0 && widestGaps[0].spread !== null
+          ? [
+              `The widest difference is in ${widestGaps[0].name}, ${widestGaps[0].spread} points apart.`,
+              widestGaps.slice(1).filter((row) => row.spread !== null).length > 0
+                ? `${widestGaps
+                    .slice(1)
+                    .filter((row) => row.spread !== null)
+                    .map((row) => `${row.name} differs by ${row.spread} points`)
+                    .join(', and ')}.`
+                : 'No other domain differs by as much.',
+            ].join(' ')
+          : 'No domain can be compared across the states for this period.',
+      ],
+      table: {
+        caption: `Domain scores by state, ${periodLabel}`,
+        columns: ['Domain', ...states.map((state) => state.name), 'Difference', 'Higher'],
+        rows: domains.map((row) => [
+          row.name,
+          ...states.map((state) => row.scores[state.orgUnitId] ?? null),
+          row.spread,
+          states.find((state) => state.orgUnitId === row.leaderId)?.name ?? null,
+        ]),
+      },
+    },
+    {
+      heading: 'Moving in opposite directions',
+      paragraphs: [
+        diverging.length === 0
+          ? 'No domain is improving in one state while declining in the other. Where the states differ, they differ in level rather than in direction.'
+          : `${diverging.length} ${diverging.length === 1 ? 'domain is' : 'domains are'} moving in opposite directions across the two states. These are the strongest candidates for asking what one state is doing that the other is not.`,
+      ],
+      ...(diverging.length > 0
+        ? {
+            table: {
+              caption: 'Domains diverging between the states',
+              columns: ['Domain', 'Improving in', 'Declining in'],
+              rows: diverging.map((row) => [row.name, row.improvingState, row.decliningState]),
+            },
+          }
+        : {}),
+    },
+    {
+      heading: 'How to read this',
+      paragraphs: [
+        'Both states are scored with the same versioned methodology over the same indicator set, so their scores are directly comparable. A difference in score is not by itself a difference in performance: check the data confidence column first, because a state that reports less completely is measured on less evidence.',
+        'This report compares states. It does not explain them. The area ranking inside each state, and the data-quality report for each, are where a difference found here is followed up.',
+      ],
+    },
+  ];
+
+  return sections;
 }

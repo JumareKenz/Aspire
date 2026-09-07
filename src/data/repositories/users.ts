@@ -14,7 +14,7 @@ export interface User {
   email: string;
   name: string;
   role: Role;
-  /** Org unit ids this user may see, including descendants. Empty = national. */
+  /** Org unit ids this user may see, including descendants. Empty = programme-wide. */
   scope: string[];
   active: boolean;
   createdAt: string;

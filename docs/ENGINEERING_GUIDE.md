@@ -88,9 +88,10 @@ into one number and never let a score be presented without its confidence.
 **8. Demo data is always labelled.** The data mode is carried in the model,
 returned by the API, shown in the shell, and stamped on every report and export.
 Never render a synthetic figure without it. The demo dataset sits on *real*
-Gombe State geography — the labelling is what prevents confusion, not fictional
-place names — but facility names are constructed, because naming a real service
-point and attaching an invented score to it makes a claim about a real place.
+administrative geography of Bauchi and Sokoto — the labelling is what prevents
+confusion, not fictional place names — but facility names are constructed,
+because naming a real service point and attaching an invented score to it makes
+a claim about a real place.
 
 **9. The methodology is provisional until told otherwise.** Anything derived
 from `ASPIRE-SRHR-PROVISIONAL-v0` is badged. See `docs/SCORECARD_METHODOLOGY.md`.
@@ -149,9 +150,16 @@ for administrators, never as a raw stack trace.
 - Sessions are signed JWTs in an httpOnly cookie; `ASPIRE_SESSION_SECRET` is
   required in production.
 - Passwords use scrypt with a per-user salt.
-- Authorisation is a role (capability) plus a geographic scope. Scope is applied
-  in the service layer, not only at the HTTP boundary — see
-  `assertOrgUnitInScope` and the scope filtering in `answerQuestion`.
+- Authorisation is a role (capability) plus a geographic scope, and the two are
+  **independent axes**: role decides what a user can do, scope decides where.
+  Never derive one from the other — a feature gated on "executives are
+  programme-wide" is a bug. Scope is applied in the service layer, not only at
+  the HTTP boundary — see `assertOrgUnitInScope` and the scope filtering in
+  `answerQuestion`. Full reference:
+  `docs/ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md`.
+- A question about a geography the user may not read is **refused**, naming what
+  it cannot show. Never substitute the user's own scope and answer as though the
+  narrower question had been asked.
 - Sign-in, configuration changes, synchronisation, report generation and every
   Intelligence question are audited.
 - Nothing is sent to an external AI service unless `ASPIRE_AI_ENABLED=true` is
@@ -169,6 +177,14 @@ version. `getActiveMethodology()` prefers official over provisional, so no code
 changes. Historical scores keep the version they were computed with.
 
 **A new data source** — implement `SourceAdapter` in `src/data/sources/`.
+
+**A new state** — add its LGAs to `src/data/sources/demo/geography.ts` (demo
+mode) or map its DHIS2 org units (live mode); add its LGA boundaries to
+`public/geo/lgas.geojson` with matching `orgUnitId` and `state` properties;
+assign users `scope: ['state-<name>']`. Nothing in `src/auth`, the map, reports
+or the intelligence pipeline counts or names states. If a new geography's name
+is also an ordinary English word, add it to `NAME_STOPWORDS` in
+`src/intelligence/answer.ts` so it does not cause false refusals.
 
 **A new question type** — add a `QueryKind`, a rule in `KIND_RULES`, an executor
 branch, and at least one case in `src/intelligence/evals/cases.ts`.

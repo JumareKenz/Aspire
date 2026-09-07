@@ -29,34 +29,77 @@ export interface EvalCase {
   expectMinRows?: number;
   /** The platform must decline rather than answer. */
   expectDeclined?: boolean;
+  /**
+   * Geography the question is asked from. Rank, comparison and below-target
+   * questions are answered about the children of the current geography, so a
+   * case about LGAs must be asked from inside a state, and a case about states
+   * from the programme root.
+   */
+  fromOrgUnitId?: string;
 }
 
 export const EVAL_CASES: EvalCase[] = [
   {
+    id: 'lowest-performing-state',
+    question: 'Which state is performing worst?',
+    // Asked at the programme root, where the children are the two states.
+    // Sokoto is seeded below Bauchi, so this has one correct answer.
+    fromOrgUnitId: 'aspire-programme',
+    expectKind: 'RANK_UNITS',
+    expectTopRefId: 'state-sokoto',
+    expectHeadlineContains: ['sokoto', 'lowest'],
+  },
+  {
+    id: 'compare-the-states',
+    question: 'Compare Bauchi and Sokoto',
+    fromOrgUnitId: 'aspire-programme',
+    expectKind: 'COMPARE_UNITS',
+    expectHeadlineContains: ['bauchi', 'sokoto'],
+    expectMinRows: 2,
+  },
+  {
     id: 'lowest-performing-area',
     question: 'Which area has the lowest performance?',
+    fromOrgUnitId: 'state-bauchi',
     expectKind: 'RANK_UNITS',
-    expectTopRefId: 'lga-balanga',
-    expectHeadlineContains: ['balanga', 'lowest'],
+    expectTopRefId: 'lga-bauchi-darazo',
+    expectHeadlineContains: ['darazo', 'lowest'],
   },
   {
     id: 'below-target',
     question: 'Which LGAs are performing below target?',
+    fromOrgUnitId: 'state-bauchi',
     expectKind: 'BELOW_TARGET',
-    // The four LGAs given a sustained planted decline must all be listed.
-    expectContainsRefIds: ['lga-shongom', 'lga-balanga', 'lga-dukku', 'lga-nafada'],
-    expectMinRows: 4,
+    // The two Bauchi LGAs given a sustained planted decline must be listed.
+    expectContainsRefIds: ['lga-bauchi-darazo', 'lga-bauchi-ningi'],
+    expectMinRows: 2,
+  },
+  {
+    id: 'below-target-other-state',
+    question: 'Which LGAs are performing below target?',
+    // The same question inside the other state must find that state's own
+    // planted declines, not the first state's.
+    fromOrgUnitId: 'state-sokoto',
+    expectKind: 'BELOW_TARGET',
+    expectContainsRefIds: ['lga-sokoto-isa', 'lga-sokoto-gada'],
+    expectMinRows: 2,
   },
   {
     id: 'most-improved',
     question: 'Which areas improved most?',
+    fromOrgUnitId: 'state-bauchi',
     expectKind: 'MOST_IMPROVED',
-    expectTopRefId: 'lga-billiri',
-    expectHeadlineContains: ['billiri'],
+    expectTopRefId: 'lga-bauchi-katagum',
+    expectHeadlineContains: ['katagum'],
   },
   {
     id: 'why-declining',
     question: 'Why is performance declining?',
+    // Asked inside an LGA that is genuinely declining. Asked at state level the
+    // planted declines are offset by the planted improvement and the honest
+    // answer is "nothing is driving a decline" — which is a different, also
+    // correct, answer and not what this case is testing.
+    fromOrgUnitId: 'lga-bauchi-darazo',
     expectKind: 'EXPLAIN_CHANGE',
     // Adolescent SRHR carries the planted decline, so it must be the top driver.
     expectTopRefId: 'adolescent-srhr',
@@ -75,13 +118,15 @@ export const EVAL_CASES: EvalCase[] = [
   },
   {
     id: 'compare-two',
-    question: 'Compare Balanga and Billiri',
+    question: 'Compare Darazo and Ningi',
+    fromOrgUnitId: 'state-bauchi',
     expectKind: 'COMPARE_UNITS',
-    expectHeadlineContains: ['billiri', 'balanga'],
+    expectHeadlineContains: ['darazo', 'ningi'],
   },
   {
     id: 'data-quality',
     question: 'Which areas have unusual reporting patterns?',
+    fromOrgUnitId: 'state-sokoto',
     expectKind: 'DATA_QUALITY',
     expectMinRows: 1,
   },

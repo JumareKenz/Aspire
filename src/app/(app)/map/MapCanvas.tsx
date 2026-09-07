@@ -31,6 +31,96 @@ const SEQUENTIAL = [
 /** Below this rendered area a polygon cannot hold its own label legibly. */
 const MIN_LABEL_AREA = 2600;
 
+/**
+ * Approximate rendered width of a string at the label font size.
+ *
+ * Measured against the shipped semibold face and rounded *up*: an estimate
+ * that runs narrow lets two labels reserve boxes that do not overlap while the
+ * glyphs that land in them do. The two extra pixels of padding cover the halo
+ * stroke, which is painted outside the text box.
+ */
+function textWidth(text: string, fontSize: number): number {
+  return text.length * fontSize * 0.62 + 4;
+}
+
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+export type LabelPlacement =
+  /** `box` is the space this label reserved, so a caller can check the result. */
+  | { kind: 'INSIDE'; unit: MapUnit; box: Box }
+  | { kind: 'LEADER'; unit: MapUnit; dx: number; dy: number; anchor: 'start' | 'end'; box: Box };
+
+/**
+ * Decides where each label goes, or that it goes nowhere.
+ *
+ * Small adjacent units — the LGAs around a state capital, typically — cannot
+ * all carry a label. Drawing them anyway produced stacks of overprinted text,
+ * so labels are placed largest-first and anything that would collide with one
+ * already placed is either moved to a free leader position or dropped.
+ *
+ * A dropped label costs nothing that matters: the shape is still focusable,
+ * still hoverable, still carries its name in the accessible label and the SVG
+ * title, and selecting it fills the detail panel. Overprinted text costs the
+ * reader both names.
+ */
+export function placeLabels(units: MapUnit[], value: (unit: MapUnit) => number | null): LabelPlacement[] {
+  // Candidate leader directions, tried in order: up-left, up-right, down-left,
+  // down-right, then the same again further out.
+  const OFFSETS: Array<{ dx: number; dy: number; anchor: 'start' | 'end' }> = [
+    { dx: -34, dy: -22, anchor: 'end' },
+    { dx: 34, dy: -22, anchor: 'start' },
+    { dx: -34, dy: 26, anchor: 'end' },
+    { dx: 34, dy: 26, anchor: 'start' },
+    { dx: -56, dy: -40, anchor: 'end' },
+    { dx: 56, dy: -40, anchor: 'start' },
+    { dx: -56, dy: 44, anchor: 'end' },
+    { dx: 56, dy: 44, anchor: 'start' },
+  ];
+
+  const placed: Box[] = [];
+  const result: LabelPlacement[] = [];
+
+  // Largest first: a big polygon has the strongest claim to its own centre.
+  for (const unit of [...units].sort((a, b) => b.area - a.area)) {
+    const reading = value(unit);
+    const text = `${unit.name} ${reading === null ? '—' : reading}`;
+    const roomy = unit.path === null || unit.area > MIN_LABEL_AREA;
+
+    if (roomy) {
+      const w = Math.max(textWidth(unit.name, 11), textWidth(String(reading ?? '—'), 11));
+      const box: Box = { x: unit.cx - w / 2, y: unit.cy - 12, w, h: 28 };
+      if (!placed.some((entry) => overlaps(entry, box))) {
+        placed.push(box);
+        result.push({ kind: 'INSIDE', unit, box });
+        continue;
+      }
+    }
+
+    const w = textWidth(text, 10);
+    let chosen: Box | null = null;
+    const found = OFFSETS.find(({ dx, dy, anchor }) => {
+      const x = anchor === 'end' ? unit.cx + dx - 3 - w : unit.cx + dx + 3;
+      const box: Box = { x, y: unit.cy + dy - 12, w, h: 14 };
+      if (placed.some((entry) => overlaps(entry, box))) return false;
+      placed.push(box);
+      chosen = box;
+      return true;
+    });
+    if (found && chosen) result.push({ kind: 'LEADER', unit, ...found, box: chosen });
+  }
+
+  return result;
+}
+
 const STATUS_FILL: Record<MapUnit['status'], string> = {
   ON_TRACK: 'var(--status-fill-positive)',
   WATCH: 'var(--status-fill-warning)',
@@ -72,6 +162,13 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
     if (values.length === 0) return { min: 0, max: 1 };
     return { min: Math.min(...values), max: Math.max(...values) };
   }, [data.units, metric]);
+
+  // Label placement depends only on the geometry and the metric being shown,
+  // so it is computed once per render of that pair rather than per shape.
+  const labels = useMemo(
+    () => placeLabels(data.units, (unit) => valueFor(unit, metric)),
+    [data.units, metric],
+  );
 
   const fillFor = (unit: MapUnit): string => {
     if (metric === 'PERFORMANCE') return STATUS_FILL[unit.status];
@@ -147,10 +244,40 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
           role="group"
           aria-label={`${METRIC_LABELS[metric]} by area. ${data.note}`}
         >
+          {/* Panel captions and dividers, when the canvas holds more than one
+              geography. Drawn first so every shape sits above them. */}
+          {data.panels.map((panel, index) => (
+            <g key={panel.name}>
+              {index > 0 ? (
+                <line
+                  x1={panel.x}
+                  y1={26}
+                  x2={panel.x}
+                  y2={data.height - 8}
+                  stroke="var(--border)"
+                  strokeDasharray="3 4"
+                />
+              ) : null}
+              <text
+                x={panel.x + panel.width / 2}
+                y={18}
+                textAnchor="middle"
+                className="fill-[var(--text-secondary)] text-[12px] font-semibold"
+              >
+                {panel.name}
+              </text>
+            </g>
+          ))}
+
           {data.units.map((unit) => {
             const active = selectedId === unit.orgUnitId || hoveredId === unit.orgUnitId;
             const value = valueFor(unit, metric);
-            const label = `${unit.name}: ${value === null ? 'no value' : value}`;
+            // The state is part of the label when the map spans more than one:
+            // two LGAs can share a name, and a reader comparing across states
+            // needs to know which one they are pointing at.
+            const label = `${unit.name}${unit.groupName ? `, ${unit.groupName}` : ''}: ${
+              value === null ? 'no value' : value
+            }`;
             return (
               <g
                 key={unit.orgUnitId}
@@ -198,71 +325,71 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
             on all four status colours and on every step of the sequential ramp,
             which plain dark text does not.
           */}
-          {data.units.map((unit) => {
+          {labels.map((placement) => {
+            const { unit } = placement;
             const value = valueFor(unit, metric);
-            const roomy = unit.path === null || unit.area > MIN_LABEL_AREA;
+            if (placement.kind === 'INSIDE') {
+              return (
+                <g key={`label-${unit.orgUnitId}`} className="pointer-events-none">
+                  <text
+                    x={unit.cx}
+                    y={unit.cy}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fontWeight={600}
+                    fill="#ffffff"
+                    stroke="rgb(20 24 20 / 0.55)"
+                    strokeWidth={2.6}
+                    paintOrder="stroke"
+                    strokeLinejoin="round"
+                  >
+                    {unit.name}
+                  </text>
+                  <text
+                    x={unit.cx}
+                    y={unit.cy + 13}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fontWeight={700}
+                    fill="#ffffff"
+                    stroke="rgb(20 24 20 / 0.55)"
+                    strokeWidth={2.6}
+                    paintOrder="stroke"
+                    strokeLinejoin="round"
+                    className="numeric"
+                  >
+                    {value === null ? '—' : value}
+                  </text>
+                </g>
+              );
+            }
+            // Too small to hold its own label, or its centre is already taken:
+            // a leader line carries the name to the nearest free position.
+            const { dx, dy, anchor } = placement;
             return (
               <g key={`label-${unit.orgUnitId}`} className="pointer-events-none">
-                {roomy ? (
-                  <>
-                    <text
-                      x={unit.cx}
-                      y={unit.cy}
-                      textAnchor="middle"
-                      fontSize={11}
-                      fontWeight={600}
-                      fill="#ffffff"
-                      stroke="rgb(20 24 20 / 0.55)"
-                      strokeWidth={2.6}
-                      paintOrder="stroke"
-                      strokeLinejoin="round"
-                    >
-                      {unit.name}
-                    </text>
-                    <text
-                      x={unit.cx}
-                      y={unit.cy + 13}
-                      textAnchor="middle"
-                      fontSize={11}
-                      fontWeight={700}
-                      fill="#ffffff"
-                      stroke="rgb(20 24 20 / 0.55)"
-                      strokeWidth={2.6}
-                      paintOrder="stroke"
-                      strokeLinejoin="round"
-                      className="numeric"
-                    >
-                      {value === null ? '—' : value}
-                    </text>
-                  </>
-                ) : (
-                  // Too small to hold its own label: a leader line carries the
-                  // name outside the shape instead of overprinting a neighbour.
-                  <>
-                    <line
-                      x1={unit.cx}
-                      y1={unit.cy}
-                      x2={unit.cx - 34}
-                      y2={unit.cy - 22}
-                      stroke="var(--text-tertiary)"
-                      strokeWidth={1}
-                    />
-                    <text
-                      x={unit.cx - 37}
-                      y={unit.cy - 24}
-                      textAnchor="end"
-                      fontSize={10}
-                      fontWeight={600}
-                      fill="var(--text-primary)"
-                      stroke="var(--viz-surface)"
-                      strokeWidth={2.4}
-                      paintOrder="stroke"
-                      strokeLinejoin="round"
-                    >
-                      {unit.name} {value === null ? '—' : value}
-                    </text>
-                  </>
-                )}
+                <line
+                  x1={unit.cx}
+                  y1={unit.cy}
+                  x2={unit.cx + dx}
+                  y2={unit.cy + dy}
+                  stroke="var(--text-tertiary)"
+                  strokeWidth={1}
+                />
+                <text
+                  x={unit.cx + dx + (anchor === 'end' ? -3 : 3)}
+                  y={unit.cy + dy - 2}
+                  textAnchor={anchor}
+                  fontSize={10}
+                  fontWeight={600}
+                  fill="var(--text-primary)"
+                  stroke="var(--viz-surface)"
+                  strokeWidth={2.4}
+                  paintOrder="stroke"
+                  strokeLinejoin="round"
+                >
+                  {unit.name} {value === null ? '—' : value}
+                </text>
               </g>
             );
           })}
@@ -282,6 +409,9 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
           <div className="space-y-4">
             <div>
               <h2 className="text-[15px] font-semibold tracking-[-0.011em]">{selected.name}</h2>
+              {selected.groupName ? (
+                <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">{selected.groupName}</p>
+              ) : null}
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <StatusPill status={selected.status} />
                 {selected.changePoints !== null ? (

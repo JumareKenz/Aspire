@@ -31,7 +31,7 @@ export const POST = withUser(async (user, request) => {
     actorEmail: user.email,
     action: 'admin.user_create',
     target: created.id,
-    detail: `${created.email} as ${created.role}, scope ${created.scope.join(',') || 'national'}`,
+    detail: `${created.email} as ${created.role}, scope ${created.scope.join(',') || 'programme-wide'}`,
   });
   return ok(created, { status: 201 });
 }, 'admin.manage');
@@ -57,7 +57,7 @@ export const PATCH = withUser(async (user, request) => {
     actorEmail: user.email,
     action: 'admin.user_update',
     target: updated.id,
-    detail: `${updated.email}: role ${updated.role}, scope ${updated.scope.join(',') || 'national'}, ${
+    detail: `${updated.email}: role ${updated.role}, scope ${updated.scope.join(',') || 'programme-wide'}, ${
       updated.active ? 'active' : 'disabled'
     }`,
   });

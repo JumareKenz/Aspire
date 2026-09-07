@@ -2,11 +2,14 @@ import { z } from 'zod';
 import {
   ACTION_STATUSES,
   createAction,
+  getAction,
   listActions,
   updateAction,
 } from '@/data/repositories/actions';
 import { recordAudit } from '@/data/repositories/audit';
-import { assertOrgUnitInScope, resolveScope } from '@/auth/server';
+import { listUsers } from '@/data/repositories/users';
+import { scopesOverlap } from '@/auth/rbac';
+import { assertOrgUnitInScope, resolveScope, type Scope } from '@/auth/server';
 import { getScorecard } from '@/services/scorecards';
 import { ApiError, ok, withUser } from '@/lib/api';
 
@@ -44,9 +47,32 @@ export const GET = withUser(async (user) => {
  * that when the action is closed the platform can say what happened to the
  * measure it was raised against rather than only that someone ticked it off.
  */
+/**
+ * An assignee must be someone the caller shares geography with.
+ *
+ * The Actions board only offers such people, but the board is a convenience —
+ * the request carries an arbitrary id and is checked here. Without this, a
+ * state officer could assign follow-up to an officer in the other state by
+ * sending their id directly.
+ */
+async function assertAssigneeReachable(
+  assigneeId: string | null | undefined,
+  scope: Scope,
+): Promise<void> {
+  if (!assigneeId) return;
+  const candidate = (await listUsers()).find((entry) => entry.id === assigneeId);
+  if (!candidate || !candidate.active) {
+    throw new ApiError('That person does not have an active account.', 404);
+  }
+  if (!scopesOverlap(scope.ids, scope.root.path, candidate.scope)) {
+    throw new ApiError('That person works outside your geographic access.', 403);
+  }
+}
+
 export const POST = withUser(async (user, request) => {
   const body = createSchema.parse(await request.json());
   if (body.orgUnitId) await assertOrgUnitInScope(user, body.orgUnitId);
+  await assertAssigneeReachable(body.assigneeId, await resolveScope(user));
 
   const baseline =
     body.orgUnitId && body.periodId
@@ -80,6 +106,17 @@ export const POST = withUser(async (user, request) => {
 
 export const PATCH = withUser(async (user, request) => {
   const body = updateSchema.parse(await request.json());
+
+  // An action is addressed by its own id, so scope has to be checked against
+  // the action rather than against anything in the request. Without this, a
+  // state officer holding an id could reassign or close an action raised in
+  // the other state.
+  const existing = await getAction(body.id);
+  if (!existing) throw new ApiError('That action no longer exists.', 404);
+  const scope = await resolveScope(user);
+  if (existing.orgUnitId) await assertOrgUnitInScope(user, existing.orgUnitId);
+  await assertAssigneeReachable(body.assigneeId, scope);
+
   const updated = await updateAction(body.id, {
     status: body.status,
     assigneeId: body.assigneeId,

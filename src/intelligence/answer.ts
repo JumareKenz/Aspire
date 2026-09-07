@@ -62,6 +62,36 @@ export async function answerQuestion(
   const orgUnits = allUnits.filter(
     (unit) => isInScope(user.scope, unit.path) && levels.includes(unit.level),
   );
+  // A question that names a geography the user cannot read is refused outright.
+  // Silently substituting their own scope would answer a different question
+  // than the one asked and present it as the answer — a state officer asking
+  // "how does Sokoto compare with Bauchi" must be told they cannot see Sokoto,
+  // not handed Bauchi's figures under Sokoto's question.
+  const outOfScope = namedButUnreadable(trimmed, allUnits, orgUnits);
+  if (outOfScope.length > 0) {
+    await recordAudit({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'intelligence.refused',
+      target: outOfScope.join(','),
+      detail: trimmed.slice(0, 500),
+    });
+    return {
+      question: trimmed,
+      result: null,
+      sections: [
+        {
+          heading: null,
+          body: `Your access covers ${describeScope(orgUnits)}, so I cannot answer a question about ${formatList(outOfScope)}. Ask about a geography within your access, or ask an administrator to widen it.`,
+        },
+      ],
+      interpretation: '',
+      plannedBy: 'RULES',
+      writtenBy: 'TEMPLATE',
+      declined: true,
+    };
+  }
+
   const context: IntentContext = {
     orgUnits,
     indicators,
@@ -178,3 +208,50 @@ export const SUGGESTED_QUESTIONS = [
   'How is adolescent family planning uptake doing?',
   'Generate an executive summary.',
 ];
+
+/**
+ * Names of geographies the question mentions that this user may not read.
+ *
+ * Matching is on whole words so that "Bauchi" does not match inside another
+ * word, and state names are checked with and without the "State" suffix
+ * because people write both. Only STATE and LGA names are considered:
+ * facility names are constructed from their LGA and would produce noise.
+ *
+ * Short names are matched too. Isa is a real LGA of Sokoto and dropping
+ * three-letter names — as an earlier version did — meant "how is Isa
+ * performing?" from a Bauchi officer was silently answered about Bauchi. The
+ * risk this creates is the opposite one: a place name that is also an ordinary
+ * English word would refuse a question that never mentioned the place. The
+ * stop list below carries the words that actually collide with names in the
+ * configured hierarchy; a new geography whose name is an English word must be
+ * added to it.
+ */
+const NAME_STOPWORDS = new Set(['data', 'care', 'state', 'north', 'south', 'east', 'west']);
+function namedButUnreadable(
+  question: string,
+  allUnits: Array<{ id: string; name: string; level: string }>,
+  permitted: Array<{ id: string }>,
+): string[] {
+  const allowed = new Set(permitted.map((unit) => unit.id));
+  const haystack = ` ${question.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  const named: string[] = [];
+  for (const unit of allUnits) {
+    if (allowed.has(unit.id)) continue;
+    if (unit.level !== 'STATE' && unit.level !== 'LGA') continue;
+    const bare = unit.name.replace(/ State$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (bare.length < 3 || NAME_STOPWORDS.has(bare)) continue;
+    if (haystack.includes(` ${bare} `)) named.push(unit.name);
+  }
+  return [...new Set(named)];
+}
+
+function describeScope(orgUnits: Array<{ name: string; level: string }>): string {
+  const states = orgUnits.filter((unit) => unit.level === 'STATE').map((unit) => unit.name);
+  if (states.length === 0) return 'the geographies assigned to you';
+  return formatList(states);
+}
+
+function formatList(values: string[]): string {
+  if (values.length === 1) return values[0];
+  return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
+}

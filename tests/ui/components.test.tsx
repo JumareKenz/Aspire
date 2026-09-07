@@ -9,6 +9,8 @@ import { Sparkline } from '@/design/charts/Sparkline';
 import { EmptyState, ErrorState } from '@/design/primitives/States';
 import { ProvisionalBadge } from '@/design/primitives/Meta';
 import { DataModeBanner } from '@/design/primitives/DataModeBanner';
+import { placeLabels } from '@/app/(app)/map/MapCanvas';
+import type { MapUnit } from '@/services/geography';
 
 afterEach(cleanup);
 
@@ -133,5 +135,89 @@ describe('provenance is always stated', () => {
     );
     expect(screen.getByText('Live DHIS2')).toBeTruthy();
     expect(container.textContent).toContain('dhis2.example.org');
+  });
+});
+
+describe('map label placement', () => {
+  const unit = (over: Partial<MapUnit>): MapUnit => ({
+    orgUnitId: 'u',
+    name: 'Unit',
+    score: 50,
+    status: 'WATCH',
+    changePoints: 0,
+    dataConfidence: 90,
+    openFindings: 0,
+    path: 'M0 0 L1 1 Z',
+    cx: 0,
+    cy: 0,
+    area: 100,
+    groupName: null,
+    ...over,
+  });
+
+  it('gives a large polygon its own centre', () => {
+    const placed = placeLabels([unit({ orgUnitId: 'a', cx: 100, cy: 100, area: 9000 })], () => 50);
+    expect(placed).toHaveLength(1);
+    expect(placed[0].kind).toBe('INSIDE');
+  });
+
+  it('moves the second of two overlapping labels to a leader line', () => {
+    const placed = placeLabels(
+      [
+        unit({ orgUnitId: 'a', name: 'Alpha', cx: 100, cy: 100, area: 9000 }),
+        unit({ orgUnitId: 'b', name: 'Beta', cx: 102, cy: 101, area: 8000 }),
+      ],
+      () => 50,
+    );
+    const byId = new Map(placed.map((entry) => [entry.unit.orgUnitId, entry]));
+    expect(byId.get('a')!.kind).toBe('INSIDE');
+    expect(byId.get('b')!.kind).toBe('LEADER');
+  });
+
+  it('places the larger polygon first, whatever order it arrives in', () => {
+    const small = unit({ orgUnitId: 'small', name: 'Small', cx: 100, cy: 100, area: 3000 });
+    const large = unit({ orgUnitId: 'large', name: 'Large', cx: 101, cy: 100, area: 90_000 });
+    for (const order of [[small, large], [large, small]]) {
+      const placed = placeLabels(order, () => 50);
+      const inside = placed.filter((entry) => entry.kind === 'INSIDE');
+      expect(inside.map((entry) => entry.unit.orgUnitId)).toEqual(['large']);
+    }
+  });
+
+  it('drops a label rather than overprinting when every position is taken', () => {
+    // Twelve identical small units on the same point: there are eight leader
+    // positions, so some must go unlabelled. They stay selectable on the map.
+    const crowd = Array.from({ length: 12 }, (_, index) =>
+      unit({ orgUnitId: `u${index}`, name: `Unit ${index}`, cx: 200, cy: 200, area: 100 }),
+    );
+    const placed = placeLabels(crowd, () => 50);
+    expect(placed.length).toBeLessThan(crowd.length);
+    expect(placed.length).toBeGreaterThan(0);
+  });
+
+  it('never reserves the same space twice', () => {
+    // Twenty units on a tight grid — far more than the canvas can label. Each
+    // placement reports the box it reserved, so the guarantee is checked
+    // against what was actually placed rather than a second estimate of it.
+    const units = Array.from({ length: 20 }, (_, index) =>
+      unit({
+        orgUnitId: `u${index}`,
+        name: `Area ${index}`,
+        cx: 100 + (index % 5) * 12,
+        cy: 100 + Math.floor(index / 5) * 12,
+        area: 1000 + index * 400,
+      }),
+    );
+    const placed = placeLabels(units, () => 50);
+    expect(placed.length).toBeGreaterThan(0);
+    const boxes = placed.map((entry) => entry.box);
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const collides = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(collides).toBe(false);
+      }
+    }
   });
 });

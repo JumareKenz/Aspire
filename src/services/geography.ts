@@ -27,10 +27,10 @@ import { env, envOr } from '@/lib/env';
 export type BoundaryMode = 'GEOJSON' | 'SCHEMATIC';
 
 /**
- * Boundaries bundled with the platform: the eleven LGAs of Gombe State, from
+ * Boundaries bundled with the platform: the 43 LGAs of Bauchi and Sokoto, from
  * geoBoundaries gbOpen NGA ADM2 (source GRID3), CC BY 4.0.
  */
-const DEFAULT_BOUNDARIES = 'public/geo/gombe-lgas.geojson';
+const DEFAULT_BOUNDARIES = 'public/geo/lgas.geojson';
 
 export interface MapUnit {
   orgUnitId: string;
@@ -51,6 +51,11 @@ export interface MapUnit {
    * rather than text spilling across their neighbours.
    */
   area: number;
+  /**
+   * The parent this unit sits under, when the map is drawn a level below the
+   * selected geography. Null when the units are the direct children.
+   */
+  groupName: string | null;
 }
 
 export interface MapData {
@@ -60,6 +65,16 @@ export interface MapData {
   units: MapUnit[];
   /** Explains what the reader is looking at. Rendered on the map itself. */
   note: string;
+  /**
+   * The level the shapes represent, which is not always the level directly
+   * below the selection — see `getMapData`.
+   */
+  drawnLevel: 'STATE' | 'LGA' | 'FACILITY' | null;
+  /**
+   * Panels the canvas is divided into, when the map draws more than one
+   * geography that does not adjoin the others. Empty for a single-panel map.
+   */
+  panels: Array<{ name: string; x: number; width: number }>;
 }
 
 interface BoundaryFeature {
@@ -126,8 +141,8 @@ function normaliseWinding(features: BoundaryFeature[]): BoundaryFeature[] {
 function loadBoundaries(): BoundaryFeature[] | null {
   if (boundaryCache) return boundaryCache.features;
 
-  // Gombe State LGA boundaries ship with the platform, so the map draws real
-  // geography out of the box. ASPIRE_BOUNDARIES_PATH overrides this for another
+  // LGA boundaries for both programme states ship with the platform, so the
+  // map draws real geography out of the box. ASPIRE_BOUNDARIES_PATH overrides this for another
   // state or a national deployment.
   const configured = envOr('ASPIRE_BOUNDARIES_PATH', DEFAULT_BOUNDARIES);
   const path = resolve(process.cwd(), configured);
@@ -158,28 +173,70 @@ function loadBoundaries(): BoundaryFeature[] | null {
 const WIDTH = 720;
 const HEIGHT = 520;
 
+/**
+ * Builds the map for a geography.
+ *
+ * The map normally draws the units directly beneath the selection. The
+ * programme root is the exception: its children are the two states, and no
+ * state-level boundary file ships with the platform, so drawing them would
+ * give a global user two dots several hundred kilometres apart — technically
+ * accurate and useless. Where the direct children have no boundaries but their
+ * own children do, the map descends one level and draws those instead,
+ * labelling each shape with the state it belongs to. That is what makes the
+ * root map a genuine cross-state view rather than a schematic placeholder.
+ *
+ * Descending is a *presentational* choice and is not a way around scope or
+ * depth: the caller has already resolved `orgUnitId` against the user's scope,
+ * and everything drawn is a descendant of it. A user who cannot see a state
+ * never selects a geography above it, so its LGAs are never drawn for them.
+ */
 export async function getMapData(orgUnitId: string, periodId: string): Promise<MapData> {
-  const [children, cards, previousCards] = await Promise.all([
-    listChildren(orgUnitId),
-    getChildScorecards(orgUnitId, periodId),
-    getChildScorecards(orgUnitId, previousPeriodId(periodId)),
+  const direct = await listChildren(orgUnitId);
+  const boundaries = loadBoundaries();
+  const byOrgUnit = new Map(
+    (boundaries ?? []).map((feature) => [
+      String(feature.properties.orgUnitId ?? feature.properties.id ?? ''),
+      feature,
+    ]),
+  );
+
+  let units = direct;
+  /** Parent name per unit, set only when the map has descended a level. */
+  let groups = new Map<string, string>();
+  let descended = false;
+
+  if (boundaries && direct.length > 0 && !direct.some((child) => byOrgUnit.has(child.id))) {
+    const grandchildren = await Promise.all(
+      direct.map(async (child) => ({ parent: child, children: await listChildren(child.id) })),
+    );
+    const flattened = grandchildren.flatMap((entry) =>
+      entry.children.map((child) => ({ child, parent: entry.parent })),
+    );
+    if (flattened.some((entry) => byOrgUnit.has(entry.child.id))) {
+      units = flattened.map((entry) => entry.child);
+      groups = new Map(flattened.map((entry) => [entry.child.id, entry.parent.name]));
+      descended = true;
+    }
+  }
+
+  const parentIds = descended ? direct.map((child) => child.id) : [orgUnitId];
+  const [cardSets, previousSets, openFindings] = await Promise.all([
+    Promise.all(parentIds.map((id) => getChildScorecards(id, periodId))),
+    Promise.all(parentIds.map((id) => getChildScorecards(id, previousPeriodId(periodId)))),
+    listFindings({ orgUnitIds: units.map((unit) => unit.id), status: 'OPEN' }),
   ]);
-  const previous = new Map(previousCards.map((card) => [card.orgUnitId, card]));
-  const cardById = new Map(cards.map((card) => [card.orgUnitId, card]));
+  const cardById = new Map(cardSets.flat().map((card) => [card.orgUnitId, card]));
+  const previous = new Map(previousSets.flat().map((card) => [card.orgUnitId, card]));
   const findingCounts = new Map<string, number>();
-  const openFindings = await listFindings({
-    orgUnitIds: children.map((child) => child.id),
-    status: 'OPEN',
-  });
   for (const finding of openFindings) {
     findingCounts.set(finding.orgUnitId, (findingCounts.get(finding.orgUnitId) ?? 0) + 1);
   }
 
-  const boundaries = loadBoundaries();
-  const positioned = children.filter((child) => child.centroid !== null);
+  const drawnLevel = (units[0]?.level ?? null) as MapData['drawnLevel'];
+  const positioned = units.filter((unit) => unit.centroid !== null);
 
   const build = (
-    child: (typeof children)[number],
+    child: (typeof units)[number],
     cx: number,
     cy: number,
     path: string | null,
@@ -203,45 +260,71 @@ export async function getMapData(orgUnitId: string, periodId: string): Promise<M
       cx,
       cy,
       area,
+      groupName: groups.get(child.id) ?? null,
     };
   };
 
   if (boundaries && boundaries.length > 0) {
-    const byOrgUnit = new Map(
-      boundaries.map((feature) => [
-        String(feature.properties.orgUnitId ?? feature.properties.id ?? ''),
-        feature,
-      ]),
-    );
-    const relevant = children
+    const relevant = units
       .map((child) => ({ child, feature: byOrgUnit.get(child.id) }))
-      .filter((entry): entry is { child: (typeof children)[number]; feature: BoundaryFeature } =>
+      .filter((entry): entry is { child: (typeof units)[number]; feature: BoundaryFeature } =>
         Boolean(entry.feature),
       );
 
     if (relevant.length > 0) {
-      const collection = {
-        type: 'FeatureCollection' as const,
-        features: relevant.map((entry) => entry.feature),
-      };
-      const projection = geoMercator().fitExtent(
-        [
-          [16, 16],
-          [WIDTH - 16, HEIGHT - 16],
-        ],
-        collection as unknown as GeoPermissibleObjects,
-      );
-      const pathBuilder = geoPath(projection);
+      // Where the map has descended, the groups are separate states hundreds
+      // of kilometres apart. One projection across all of them wastes most of
+      // the canvas on the gap between them and shrinks both states until their
+      // labels collide. Each group is fitted into its own panel instead — the
+      // same choice a printed atlas makes, and the one that lets the two
+      // states actually be compared.
+      const groupNames = descended
+        ? [...new Set(relevant.map((entry) => groups.get(entry.child.id)!).filter(Boolean))]
+        : [];
+      const panelCount = Math.max(1, groupNames.length);
+      const panelWidth = WIDTH / panelCount;
+      const TOP = groupNames.length > 1 ? 34 : 16;
+
+      const drawn: MapUnit[] = [];
+      const panels: MapData['panels'] = [];
+
+      for (let index = 0; index < panelCount; index += 1) {
+        const name = groupNames[index] ?? null;
+        const members = name
+          ? relevant.filter((entry) => groups.get(entry.child.id) === name)
+          : relevant;
+        if (members.length === 0) continue;
+
+        const x0 = index * panelWidth;
+        const projection = geoMercator().fitExtent(
+          [
+            [x0 + 14, TOP],
+            [x0 + panelWidth - 14, HEIGHT - 16],
+          ],
+          {
+            type: 'FeatureCollection' as const,
+            features: members.map((entry) => entry.feature),
+          } as unknown as GeoPermissibleObjects,
+        );
+        const pathBuilder = geoPath(projection);
+        for (const entry of members) {
+          const shape = entry.feature as unknown as GeoPermissibleObjects;
+          const [cx, cy] = pathBuilder.centroid(shape);
+          drawn.push(build(entry.child, cx, cy, pathBuilder(shape), pathBuilder.area(shape)));
+        }
+        if (name) panels.push({ name, x: x0, width: panelWidth });
+      }
+
       return {
         mode: 'GEOJSON',
         width: WIDTH,
         height: HEIGHT,
-        units: relevant.map((entry) => {
-          const shape = entry.feature as unknown as GeoPermissibleObjects;
-          const [cx, cy] = pathBuilder.centroid(shape);
-          return build(entry.child, cx, cy, pathBuilder(shape), pathBuilder.area(shape));
-        }),
-        note: 'Administrative boundaries as configured for this installation.',
+        drawnLevel,
+        panels,
+        units: drawn,
+        note: descended
+          ? `Administrative boundaries. Drawn one level down, across ${groupNames.join(' and ')}, because no boundaries are configured for the level directly below. Each state is fitted to its own panel, so the panels are not to a common scale.`
+          : 'Administrative boundaries as configured for this installation.',
       };
     }
   }
@@ -258,7 +341,15 @@ export async function getMapData(orgUnitId: string, periodId: string): Promise<M
   };
 
   if (points.features.length === 0) {
-    return { mode: 'SCHEMATIC', width: WIDTH, height: HEIGHT, units: [], note: 'No positions are recorded for these areas.' };
+    return {
+      mode: 'SCHEMATIC',
+      width: WIDTH,
+      height: HEIGHT,
+      drawnLevel,
+      panels: [],
+      units: [],
+      note: 'No positions are recorded for these areas.',
+    };
   }
 
   const projection = geoMercator().fitExtent(
@@ -273,6 +364,8 @@ export async function getMapData(orgUnitId: string, periodId: string): Promise<M
     mode: 'SCHEMATIC',
     width: WIDTH,
     height: HEIGHT,
+    drawnLevel,
+    panels: [],
     units: positioned.map((child) => {
       const projected = projection([child.centroid!.lon, child.centroid!.lat]) ?? [WIDTH / 2, HEIGHT / 2];
       return build(child, projected[0], projected[1], null);

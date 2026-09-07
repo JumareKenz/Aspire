@@ -1,5 +1,11 @@
 # Role access matrix
 
+> This document covers the **role** axis. Role and geographic scope are
+> independent, and the combined picture — including everything specific to
+> serving two states — is in
+> [`ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md`](ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md),
+> which is the authority where the two axes meet.
+
 Three tiers. Programme, LGA, M&E and technical users are deliberately **one
 tier** (`ANALYST`), separated from each other by geographic scope rather than by
 a different product.
@@ -49,7 +55,12 @@ render; it never branches on a role name. Adding a role is a row in
 | Follow-up actions | No (not in navigation) | Yes | Yes |
 | Reports — executive brief | Yes | Yes | Yes |
 | Reports — intelligence summary | Yes | Yes | Yes |
+| Reports — cross-state comparison | Yes* | Yes* | Yes* |
 | Reports — quarterly / area / data quality | No | Yes | Yes |
+
+\* Offered by role, but produced only where the user's *scope* holds more than
+one state. `reportTypesFor(user, stateCount)` intersects the two. This is the
+one place the axes meet, and scope can only ever remove a type.
 | Users and roles | No | No | Yes |
 | Indicator configuration | No | No | Yes |
 | Scorecard methodology | No | No | Yes |
@@ -70,9 +81,11 @@ rendered is also not reachable by typing its URL. The two cannot drift.
 
 ## Geographic scope
 
-Independent of tier. An empty scope means national; otherwise the user sees
-their assigned org units and everything beneath them, resolved through the
-materialised ancestor path.
+Independent of tier. An empty scope means programme-wide; otherwise the user
+sees their assigned org units and everything beneath them, resolved through the
+materialised ancestor path. The hierarchy spans two states —
+`ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md` covers what that means surface by
+surface.
 
 Scope and depth are both enforced in `assertOrgUnitInScope()`, which every page
 and API route resolves org units through:
@@ -83,8 +96,9 @@ and API route resolves org units through:
 | Depth | A unit below the tier's `deepestLevel` → 403 |
 | Existence | An unknown id → 404 |
 
-An executive with *national* scope is still refused a facility id, because
-depth is a separate check from geography. Hiding a link is never the thing
+An executive with *programme-wide* scope is still refused a facility id, because
+depth is a separate check from geography. Equally, a state-scoped analyst is
+refused the other state's LGA even though analysts may read LGAs. Hiding a link is never the thing
 standing between a user and data.
 
 ## Where each rule is enforced
@@ -94,7 +108,8 @@ standing between a user and data.
 | Route reachability | `requireRoute()` / `requirePermission()` in `src/auth/server.ts` |
 | Geography + depth | `assertOrgUnitInScope()`, `resolveScope()` |
 | Capability | `can()` via `withUser(handler, permission)` on every API route |
-| Report type | `experienceFor(user).reportTypes` in both the page and the export route |
+| Report type | `reportTypesFor(user, stateCount)` in the reports page, the report view and the export route |
+| Cross-state surfaces | `accessibleStates(user).length > 1` — scope alone, never role |
 | Intelligence scope | `answerQuestion()` filters the planner's org-unit list **before** planning, then re-checks the resolved query, then filters result rows |
 
 ## Intelligence authorisation
@@ -112,9 +127,16 @@ Authorisation happens **before** retrieval, not after an answer exists:
 An analyst scoped to one LGA asking "rank every area" receives their own area
 only. An executive receives areas, never facilities.
 
+A question that *names* a geography the user may not read is refused outright,
+naming what it cannot show, rather than being narrowed to the user's own scope
+and answered as though the narrower question had been asked.
+
 ## Testing
 
 - `tests/core/experience.test.ts` — configuration, navigation, depth, route guarding
 - `tests/core/permissions.test.ts` — capability matrix and scope containment
 - `tests/api/permissions.test.ts` — enforcement against the real store, including
-  bypass attempts by id, and intelligence scope for both tiers
+  bypass attempts by id, intelligence scope for both tiers, and the full
+  role × scope matrix with each axis varied independently
+- `tests/api/reports.test.ts` — report types as an intersection of role and scope
+- `tests/api/map.test.ts` — map scope at the root and inside a state

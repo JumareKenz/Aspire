@@ -8,8 +8,10 @@ import type { IndicatorDefinition } from '@/core/registry/types';
  * - `source.dx` carries a real DHIS2 UID where the target instance actually
  *   defines that indicator, and `null` where it does not. A null mapping is
  *   skipped at synchronisation and reported in Admin, so the gap is visible
- *   rather than silently returning nothing. The mapped UIDs below come from the
- *   Gombe State instance's own metadata (8 indicators, 187 data elements);
+ *   rather than silently returning nothing. The mapped UIDs below were read from the
+ *   reference DHIS2 instance's own metadata (8 indicators, 187 data elements)
+ *   and must be re-confirmed against each programme state's instance before
+ *   live use — UIDs are per-instance and do not transfer;
  *   the remainder need either a DHIS2 indicator defined for them or a mapping
  *   onto the underlying data elements, which is set in Admin → Indicators.
  * - `defaultTarget` values are placeholders pending the official ASPIRE-GAC

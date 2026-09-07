@@ -24,6 +24,13 @@ export const PERMISSIONS = [
   'performance.indicator',
   /** Compare periods and geographies side by side. */
   'performance.compare',
+  /**
+   * Read more than one state. Held by every role — it is *scope*, not role,
+   * that decides whether a user actually has two states to compare, so this
+   * capability gates the cross-state surfaces and geographic scope gates the
+   * data behind them.
+   */
+  'geography.crossState',
   /** The full data-quality workspace rather than a confidence summary. */
   'quality.detail',
   'quality.triage',
@@ -42,7 +49,12 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   // Decision support: how are we doing, what needs attention, what changed.
   // Deliberately excludes facility drill-down, the data-quality workspace and
   // the follow-up board — those are operational, not governance, concerns.
-  EXECUTIVE: ['intelligence.view', 'intelligence.ask', 'reports.generate'],
+  EXECUTIVE: [
+    'intelligence.view',
+    'intelligence.ask',
+    'reports.generate',
+    'geography.crossState',
+  ],
   ANALYST: [
     'intelligence.view',
     'intelligence.ask',
@@ -50,6 +62,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'performance.facility',
     'performance.indicator',
     'performance.compare',
+    'geography.crossState',
     'quality.detail',
     'quality.triage',
     'actions.view',
@@ -71,13 +84,35 @@ export function can(role: Role, permission: Permission): boolean {
 /**
  * Whether a user may see an org unit.
  *
- * An empty scope means national access. Otherwise the unit must be one of the
+ * An empty scope means programme-wide access. Otherwise the unit must be one of the
  * scoped units or a descendant of one — which is why org units carry a
  * materialised ancestor path.
  */
 export function isInScope(scope: string[], orgUnitPath: string[]): boolean {
   if (scope.length === 0) return true;
   return orgUnitPath.some((ancestorId) => scope.includes(ancestorId));
+}
+
+/**
+ * Whether two users share any geography at all.
+ *
+ * Used where one user is offered a list of others — assigning a follow-up, for
+ * example. A Bauchi officer has no business seeing that a Sokoto officer
+ * exists, and could not usefully assign them work about a geography neither of
+ * them can both open.
+ *
+ * Overlap runs in both directions: a candidate whose scope sits *inside* the
+ * viewer's, and a candidate whose scope *contains* it, are both reachable.
+ */
+export function scopesOverlap(
+  viewerScopeIds: string[],
+  viewerRootPath: string[],
+  candidateScope: string[],
+): boolean {
+  // The candidate can read the viewer's root, so everything the viewer sees.
+  if (isInScope(candidateScope, viewerRootPath)) return true;
+  // Or the candidate sits somewhere inside what the viewer can read.
+  return candidateScope.some((id) => viewerScopeIds.includes(id));
 }
 
 export const ROLE_LABELS: Record<Role, string> = {

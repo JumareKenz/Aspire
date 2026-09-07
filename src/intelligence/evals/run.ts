@@ -20,7 +20,15 @@ export async function runCase(
   user: User,
   defaults: { orgUnitId: string; periodId: string },
 ): Promise<EvalOutcome> {
-  const answer = await answerQuestion(testCase.question, user, defaults);
+  // A case may pin the geography it is asked from. Rank and comparison
+  // questions are answered about the *children* of the current geography, so
+  // "which area is lowest" means states at the programme root and LGAs inside
+  // a state. The cases say which they mean rather than depending on whatever
+  // the caller happened to pass.
+  const answer = await answerQuestion(testCase.question, user, {
+    ...defaults,
+    orgUnitId: testCase.fromOrgUnitId ?? defaults.orgUnitId,
+  });
   const failures: string[] = [];
   const result = answer.result;
 

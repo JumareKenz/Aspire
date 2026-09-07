@@ -2,45 +2,94 @@ import type { OrgUnit } from '@/core/model/types';
 import { hashSeed, mulberry32 } from './random';
 
 /**
- * Demo geography — the real administrative shape of Gombe State.
+ * Demo geography — the real administrative shape of the two programme states.
  *
- * The platform's deployment target is Gombe State, whose DHIS2 hierarchy is
- * State → LGA → Ward → Community → Facility. The demo dataset therefore uses
- * the state's eleven real LGAs and their real boundaries (see
- * `public/geo/gombe-lgas.geojson`), so that the map, the hierarchy and the
- * drill-down behave exactly as they will against live data.
+ * ASPIRE-GAC covers **Bauchi** and **Sokoto**. Both hang off a single
+ * programme root so that one hierarchy serves everyone:
  *
- * The *figures* attached to these places remain entirely synthetic, and are
- * labelled DEMO at the data layer, in the API, in the shell, and on every
- * report and export. Real geography with clearly-marked synthetic values is
- * more useful — and no less honest — than fictional geography, because the
- * labelling is what prevents the confusion, not the place names.
+ *   Programme → State → LGA → Facility
  *
- * Facility names are constructed rather than real: naming individual health
- * facilities and attaching invented performance figures to them would make
- * claims about identifiable service points.
+ * The root exists so a global user has a genuine aggregate to read and a
+ * single place to compare the two states from, rather than the application
+ * having to special-case "two disconnected trees". A state-scoped user is
+ * simply scoped to their state node and never sees the sibling.
+ *
+ * Boundaries for all 43 LGAs ship in `public/geo/lgas.geojson`
+ * (geoBoundaries gbOpen NGA ADM2 / GRID3, CC BY 4.0) and the ids here match
+ * its `orgUnitId` values exactly.
+ *
+ * The *figures* attached to these places are synthetic and labelled DEMO
+ * throughout. Facility names are constructed rather than real: naming an
+ * actual service point and attaching an invented score to it would make a
+ * claim about an identifiable place.
  */
-export const DEMO_STATE = { id: 'state-gombe', name: 'Gombe State' };
-
 /**
- * The eleven LGAs of Gombe State, with centroids from the boundary file.
- * Ids match the `orgUnitId` in `public/geo/gombe-lgas.geojson`.
+ * The root is named for the programme rather than for the states beneath it.
+ * A root called "Bauchi and Sokoto" would answer to a question naming either
+ * state, and the intelligence pipeline matches geographies by name.
  */
-const LGAS: Array<{ id: string; name: string; code: string; lon: number; lat: number }> = [
-  { id: 'lga-akko', name: 'Akko', code: 'GO-AKK', lon: 11.08, lat: 10.1 },
-  { id: 'lga-balanga', name: 'Balanga', code: 'GO-BAL', lon: 11.62, lat: 9.84 },
-  { id: 'lga-billiri', name: 'Billiri', code: 'GO-BIL', lon: 11.12, lat: 9.86 },
-  { id: 'lga-dukku', name: 'Dukku', code: 'GO-DUK', lon: 10.81, lat: 10.78 },
-  { id: 'lga-funakaye', name: 'Funakaye', code: 'GO-FUN', lon: 11.39, lat: 10.83 },
-  { id: 'lga-gombe', name: 'Gombe', code: 'GO-GOM', lon: 11.19, lat: 10.3 },
-  { id: 'lga-kaltungo', name: 'Kaltungo', code: 'GO-KAL', lon: 11.42, lat: 9.86 },
-  { id: 'lga-kwami', name: 'Kwami', code: 'GO-KWA', lon: 11.22, lat: 10.48 },
-  { id: 'lga-nafada', name: 'Nafada', code: 'GO-NAF', lon: 11.25, lat: 11.02 },
-  { id: 'lga-shongom', name: 'Shongom', code: 'GO-SHO', lon: 11.2, lat: 9.69 },
-  { id: 'lga-yamaltu-deba', name: 'Yamaltu/Deba', code: 'GO-YAM', lon: 11.5, lat: 10.27 },
+export const PROGRAMME_ROOT = { id: 'aspire-programme', name: 'ASPIRE-GAC Programme' };
+export const BAUCHI = { id: 'state-bauchi', name: 'Bauchi State', code: 'BA' };
+export const SOKOTO = { id: 'state-sokoto', name: 'Sokoto State', code: 'SO' };
+
+interface LgaSeed {
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+}
+
+/** The twenty LGAs of Bauchi State. */
+const BAUCHI_LGAS: LgaSeed[] = [
+  { id: 'lga-bauchi-alkaleri', name: "Alkaleri", lon: 10.3555, lat: 9.9805 },
+  { id: 'lga-bauchi-bauchi', name: "Bauchi", lon: 9.9133, lat: 10.271 },
+  { id: 'lga-bauchi-bogoro', name: "Bogoro", lon: 9.5903, lat: 9.6439 },
+  { id: 'lga-bauchi-dambam', name: "Dambam", lon: 10.7288, lat: 11.6526 },
+  { id: 'lga-bauchi-darazo', name: "Darazo", lon: 10.5878, lat: 11.1679 },
+  { id: 'lga-bauchi-dass', name: "Dass", lon: 9.5009, lat: 9.9956 },
+  { id: 'lga-bauchi-gamawa', name: "Gamawa", lon: 10.5751, lat: 12.0221 },
+  { id: 'lga-bauchi-ganjuwa', name: "Ganjuwa", lon: 10.0275, lat: 10.7715 },
+  { id: 'lga-bauchi-giade', name: "Giade", lon: 10.2659, lat: 11.4284 },
+  { id: 'lga-bauchi-itas-gadau', name: "Itas/Gadau", lon: 10.0446, lat: 11.9045 },
+  { id: 'lga-bauchi-jama-are', name: "Jama'Are", lon: 9.9229, lat: 11.6547 },
+  { id: 'lga-bauchi-katagum', name: "Katagum", lon: 10.3443, lat: 11.6444 },
+  { id: 'lga-bauchi-kirfi', name: "Kirfi", lon: 10.4754, lat: 10.3945 },
+  { id: 'lga-bauchi-misau', name: "Misau", lon: 10.4881, lat: 11.3946 },
+  { id: 'lga-bauchi-ningi', name: "Ningi", lon: 9.2426, lat: 11.0758 },
+  { id: 'lga-bauchi-shira', name: "Shira", lon: 10.03, lat: 11.4775 },
+  { id: 'lga-bauchi-tafawa-balewa', name: "Tafawa-Balewa", lon: 9.5737, lat: 9.8012 },
+  { id: 'lga-bauchi-toro', name: "Toro", lon: 9.2527, lat: 10.3266 },
+  { id: 'lga-bauchi-warji', name: "Warji", lon: 9.7354, lat: 11.173 },
+  { id: 'lga-bauchi-zaki', name: "Zaki", lon: 10.3656, lat: 12.1936 },
 ];
 
-/** Facility types as they appear in Nigerian primary health care. */
+/** The twenty-three LGAs of Sokoto State. */
+const SOKOTO_LGAS: LgaSeed[] = [
+  { id: 'lga-sokoto-binji', name: "Binji", lon: 4.8198, lat: 13.1877 },
+  { id: 'lga-sokoto-bodinga', name: "Bodinga", lon: 5.1782, lat: 12.8513 },
+  { id: 'lga-sokoto-dange-shuni', name: "Dange Shuni", lon: 5.4318, lat: 12.8298 },
+  { id: 'lga-sokoto-gada', name: "Gada", lon: 5.6663, lat: 13.6535 },
+  { id: 'lga-sokoto-goronyo', name: "Goronyo", lon: 5.737, lat: 13.3879 },
+  { id: 'lga-sokoto-gudu', name: "Gudu", lon: 4.4929, lat: 13.4274 },
+  { id: 'lga-sokoto-gwadabawa', name: "Gwadabawa", lon: 5.3117, lat: 13.423 },
+  { id: 'lga-sokoto-illela', name: "Illela", lon: 5.3782, lat: 13.6154 },
+  { id: 'lga-sokoto-isa', name: "Isa", lon: 6.4054, lat: 13.1838 },
+  { id: 'lga-sokoto-kebbe', name: "Kebbe", lon: 4.6888, lat: 11.7851 },
+  { id: 'lga-sokoto-kware', name: "Kware", lon: 5.3071, lat: 13.1507 },
+  { id: 'lga-sokoto-rabah', name: "Rabah", lon: 5.6101, lat: 13.0145 },
+  { id: 'lga-sokoto-sabon-birni', name: "Sabon Birni", lon: 6.2246, lat: 13.4748 },
+  { id: 'lga-sokoto-shagari', name: "Shagari", lon: 5.0814, lat: 12.5461 },
+  { id: 'lga-sokoto-silame', name: "Silame", lon: 4.8, lat: 13.0004 },
+  { id: 'lga-sokoto-sokoto-north', name: "Sokoto North", lon: 5.2319, lat: 13.0722 },
+  { id: 'lga-sokoto-sokoto-south', name: "Sokoto South", lon: 5.2533, lat: 13.0422 },
+  { id: 'lga-sokoto-tambuwal', name: "Tambuwal", lon: 4.8029, lat: 12.4056 },
+  { id: 'lga-sokoto-tangaza', name: "Tangaza", lon: 5.0087, lat: 13.4058 },
+  { id: 'lga-sokoto-tureta', name: "Tureta", lon: 5.491, lat: 12.5389 },
+  { id: 'lga-sokoto-wamakko', name: "Wamakko", lon: 5.1585, lat: 13.0655 },
+  { id: 'lga-sokoto-wurno', name: "Wurno", lon: 5.4988, lat: 13.2172 },
+  { id: 'lga-sokoto-yabo', name: "Yabo", lon: 4.9627, lat: 12.7622 },
+];
+
 const FACILITY_KINDS = [
   'General Hospital',
   'Primary Health Centre',
@@ -64,64 +113,80 @@ const FACILITY_PREFIXES = [
 ];
 
 export interface DemoGeography {
-  state: OrgUnit;
+  root: OrgUnit;
+  states: OrgUnit[];
   lgas: OrgUnit[];
   facilities: OrgUnit[];
   all: OrgUnit[];
 }
 
-/**
- * Builds the demo hierarchy: one state, eleven real LGAs, and a deterministic
- * set of reporting facilities beneath each.
- */
 export function buildDemoGeography(): DemoGeography {
-  const state: OrgUnit = {
-    id: DEMO_STATE.id,
-    code: 'GO',
-    name: DEMO_STATE.name,
-    level: 'STATE',
+  const root: OrgUnit = {
+    id: PROGRAMME_ROOT.id,
+    code: 'ASPIRE',
+    name: PROGRAMME_ROOT.name,
+    level: 'COUNTRY',
     parentId: null,
-    path: [DEMO_STATE.id],
-    centroid: { lon: 11.2, lat: 10.4 },
+    path: [PROGRAMME_ROOT.id],
+    centroid: { lon: 7.8, lat: 11.8 },
     active: true,
   };
 
-  const lgas: OrgUnit[] = LGAS.map((entry) => ({
-    id: entry.id,
-    code: entry.code,
-    name: entry.name,
-    level: 'LGA' as const,
-    parentId: state.id,
-    path: [state.id, entry.id],
+  const stateSeeds = [
+    { seed: BAUCHI, lgas: BAUCHI_LGAS, lon: 10.0, lat: 10.8 },
+    { seed: SOKOTO, lgas: SOKOTO_LGAS, lon: 5.2, lat: 13.0 },
+  ];
+
+  const states: OrgUnit[] = stateSeeds.map((entry) => ({
+    id: entry.seed.id,
+    code: entry.seed.code,
+    name: entry.seed.name,
+    level: 'STATE' as const,
+    parentId: root.id,
+    path: [root.id, entry.seed.id],
     centroid: { lon: entry.lon, lat: entry.lat },
     active: true,
   }));
 
+  const lgas: OrgUnit[] = [];
   const facilities: OrgUnit[] = [];
-  for (const lga of lgas) {
-    const rng = mulberry32(hashSeed(`facilities:${lga.id}`));
-    const count = 7 + Math.floor(rng() * 5);
-    for (let i = 0; i < count; i += 1) {
-      const prefix = FACILITY_PREFIXES[Math.floor(rng() * FACILITY_PREFIXES.length)];
-      const kind = FACILITY_KINDS[Math.floor(rng() * FACILITY_KINDS.length)];
-      const id = `fac-${lga.id.replace('lga-', '')}-${i + 1}`;
-      facilities.push({
-        id,
-        code: `${lga.code}-F${String(i + 1).padStart(2, '0')}`,
-        name: `${lga.name} ${prefix} ${kind}`,
-        level: 'FACILITY',
-        parentId: lga.id,
-        path: [state.id, lga.id, id],
-        // Scattered within the LGA so facility points sit inside their own
-        // boundary on the map.
-        centroid: {
-          lon: (lga.centroid?.lon ?? 11.2) + (rng() - 0.5) * 0.18,
-          lat: (lga.centroid?.lat ?? 10.4) + (rng() - 0.5) * 0.16,
-        },
+
+  for (const { seed, lgas: seeds } of stateSeeds) {
+    seeds.forEach((entry, index) => {
+      const lga: OrgUnit = {
+        id: entry.id,
+        code: `${seed.code}-${String(index + 1).padStart(2, '0')}`,
+        name: entry.name,
+        level: 'LGA',
+        parentId: seed.id,
+        path: [root.id, seed.id, entry.id],
+        centroid: { lon: entry.lon, lat: entry.lat },
         active: true,
-      });
-    }
+      };
+      lgas.push(lga);
+
+      const rng = mulberry32(hashSeed(`facilities:${lga.id}`));
+      const count = 5 + Math.floor(rng() * 4);
+      for (let i = 0; i < count; i += 1) {
+        const prefix = FACILITY_PREFIXES[Math.floor(rng() * FACILITY_PREFIXES.length)];
+        const kind = FACILITY_KINDS[Math.floor(rng() * FACILITY_KINDS.length)];
+        const id = `fac-${entry.id.replace('lga-', '')}-${i + 1}`;
+        facilities.push({
+          id,
+          code: `${lga.code}-F${String(i + 1).padStart(2, '0')}`,
+          name: `${entry.name} ${prefix} ${kind}`,
+          level: 'FACILITY',
+          parentId: lga.id,
+          path: [root.id, seed.id, entry.id, id],
+          centroid: {
+            lon: entry.lon + (rng() - 0.5) * 0.18,
+            lat: entry.lat + (rng() - 0.5) * 0.16,
+          },
+          active: true,
+        });
+      }
+    });
   }
 
-  return { state, lgas, facilities, all: [state, ...lgas, ...facilities] };
+  return { root, states, lgas, facilities, all: [root, ...states, ...lgas, ...facilities] };
 }

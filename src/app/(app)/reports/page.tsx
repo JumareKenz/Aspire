@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolvePageContext, type SearchParams } from '@/services/context';
 import { REPORT_META } from '@/services/reports';
-import { experienceFor } from '@/auth/experience';
+import { reportTypesFor } from '@/auth/experience';
+import { accessibleStates } from '@/services/states';
 import { PageHeader } from '@/design/patterns/PageHeader';
 import { ScopeBar } from '@/design/patterns/ScopeBar';
 import { Card } from '@/design/primitives/Card';
@@ -14,7 +15,9 @@ export const dynamic = 'force-dynamic';
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const context = await resolvePageContext(await searchParams);
   const mode = await getDataMode();
-  const reportTypes = experienceFor(context.user).reportTypes;
+  // Role decides which kinds of report exist for this user; scope decides
+  // which of them they have the geography to produce.
+  const reportTypes = reportTypesFor(context.user, (await accessibleStates(context.user)).length);
 
   return (
     <>

@@ -18,7 +18,10 @@ export interface PeriodOption {
 }
 
 const LEVEL_LABEL: Record<OrgLevel, string> = {
-  COUNTRY: 'National',
+  // The top of the hierarchy is the programme, not the country: ASPIRE-GAC
+  // covers two states, and calling that level "national" would claim national
+  // coverage the data does not have.
+  COUNTRY: 'Programme',
   STATE: 'State',
   LGA: 'LGA',
   FACILITY: 'Facility',

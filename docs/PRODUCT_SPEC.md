@@ -24,6 +24,14 @@ workspace. What differs between an LGA officer and a state M&E officer is
 *geographic scope*, not the product they see. There are no role-specific
 dashboards and no duplicated screens.
 
+**Scope is the second axis, and it is independent of tier.** The platform serves
+Bauchi and Sokoto from one application. Any tier can be held programme-wide or
+restricted to a state or an LGA: a state commissioner is an `EXECUTIVE` scoped to
+their state, not a lesser role. The surfaces that need more than one state — the
+cross-state comparison on Overview, the comparison report, the two-panel map —
+appear on *scope*, never on seniority. See
+[`ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md`](ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md).
+
 Administration is a separate area, reached from a separate navigation group.
 
 ## Navigation — six destinations
@@ -45,6 +53,13 @@ Reads as an executive briefing, in four movements:
    ranking.
 4. **What we recommend.** Evidence-bearing recommendations, each naming the
    geography, the indicators and the figures behind it.
+
+For a user whose scope holds both states, a fifth movement sits between the
+first and second: **how the states compare** — each state's score and
+confidence, every domain side by side, where the gap is widest, and where the
+two are moving in opposite directions. It leads with the difference rather than
+asking the reader to diff two columns. A state-scoped user of any tier does not
+see it, because there is nothing for them to compare.
 
 A senior user should understand the state of the programme in about thirty
 seconds without scrolling.

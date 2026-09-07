@@ -26,22 +26,52 @@ declare global {
  */
 const DEV_PASSWORD = envOr('ASPIRE_SEED_PASSWORD', 'aspire-demo');
 
+/**
+ * Initial accounts.
+ *
+ * Role and geographic scope are **independent**. Role says what a user may do;
+ * scope says where they may do it. Every combination below is legitimate, and
+ * the two are deliberately not correlated — there is no rule that executives
+ * are global or that analysts are state-bound.
+ *
+ * An empty `scope` means global: both states and everything beneath them.
+ * A scope naming a state restricts the user to that state's subtree, enforced
+ * in the data layer rather than by hiding controls.
+ */
 const SEED_USERS = [
   {
     email: 'executive@aspire.local',
-    name: 'Demo executive',
+    name: 'Global executive',
     role: 'EXECUTIVE' as const,
     scope: [] as string[],
   },
   {
+    email: 'bauchi.executive@aspire.local',
+    name: 'Bauchi executive',
+    role: 'EXECUTIVE' as const,
+    scope: ['state-bauchi'],
+  },
+  {
     email: 'analyst@aspire.local',
-    name: 'Demo programme officer',
+    name: 'Global programme officer',
     role: 'ANALYST' as const,
     scope: [] as string[],
   },
   {
+    email: 'bauchi.analyst@aspire.local',
+    name: 'Bauchi programme officer',
+    role: 'ANALYST' as const,
+    scope: ['state-bauchi'],
+  },
+  {
+    email: 'sokoto.analyst@aspire.local',
+    name: 'Sokoto programme officer',
+    role: 'ANALYST' as const,
+    scope: ['state-sokoto'],
+  },
+  {
     email: 'admin@aspire.local',
-    name: 'Demo administrator',
+    name: 'System administrator',
     role: 'ADMIN' as const,
     scope: [] as string[],
   },
@@ -51,7 +81,7 @@ const SEED_USERS = [
  * Identifier for the Postgres advisory lock that serialises first-run setup.
  * Arbitrary but fixed — it only has to be unique within this database.
  */
-const BOOTSTRAP_LOCK = 4_820_3311;
+const BOOTSTRAP_LOCK = 48203311;
 
 async function bootstrap(): Promise<void> {
   await ensureSchema();
@@ -70,6 +100,17 @@ async function bootstrap(): Promise<void> {
 async function seedInside(): Promise<void> {
   await seedRegistryIfEmpty();
 
+  // Geography is imported before accounts, because a state-scoped account
+  // references org unit ids that must already exist for its scope to resolve.
+  const observations = await queryOne<{ n: string }>('SELECT COUNT(*) AS n FROM observations');
+  if (Number(observations?.n ?? 0) === 0) {
+    const result = await runSync();
+    await recordAudit({
+      action: 'system.initial_sync',
+      detail: result.ok ? result.message : `Initial synchronisation failed: ${result.message}`,
+    });
+  }
+
   if ((await countUsers()) === 0) {
     for (const user of SEED_USERS) {
       await createUser({ ...user, password: DEV_PASSWORD });
@@ -80,14 +121,6 @@ async function seedInside(): Promise<void> {
     });
   }
 
-  const observations = await queryOne<{ n: string }>('SELECT COUNT(*) AS n FROM observations');
-  if (Number(observations?.n ?? 0) === 0) {
-    const result = await runSync();
-    await recordAudit({
-      action: 'system.initial_sync',
-      detail: result.ok ? result.message : `Initial synchronisation failed: ${result.message}`,
-    });
-  }
 }
 
 export function ensureBootstrapped(): Promise<void> {

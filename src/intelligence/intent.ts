@@ -112,12 +112,41 @@ function matchDomain(question: string, domains: DomainDefinition[]): DomainDefin
   return null;
 }
 
+/**
+ * The administrative designation is not a distinguishing word: nobody writes
+ * "compare Bauchi State and Sokoto State", and scoring the suffix would drop
+ * both to half a match and find neither.
+ */
+function distinguishingName(name: string): string {
+  return name.replace(/\s+State$/i, '');
+}
+
+/**
+ * Geographies the question names.
+ *
+ * A bare name can be ambiguous — Bauchi is both a state and an LGA inside it —
+ * so where several units answer to the same name only the highest is kept.
+ * "How is Bauchi doing?" means the state; the LGA is reached by drilling in,
+ * or by naming it as an LGA. Returning both would silently turn a question
+ * about one place into a comparison of a place with part of itself.
+ */
 function matchOrgUnits(question: string, orgUnits: OrgUnit[]): OrgUnit[] {
-  return orgUnits
-    .map((unit) => ({ unit, score: nameScore(unit.name, question) }))
+  const matched = orgUnits
+    .map((unit) => ({ unit, score: nameScore(distinguishingName(unit.name), question) }))
     .filter((entry) => entry.score >= 0.75)
-    .sort((a, b) => b.score - a.score)
-    .map((entry) => entry.unit);
+    .sort((a, b) =>
+      b.score === a.score ? a.unit.path.length - b.unit.path.length : b.score - a.score,
+    );
+
+  const seen = new Set<string>();
+  const kept: OrgUnit[] = [];
+  for (const entry of matched) {
+    const key = distinguishingName(entry.unit.name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(entry.unit);
+  }
+  return kept;
 }
 
 /** Recognises an explicit period like "Q1 2026", "2026Q1" or "202603". */

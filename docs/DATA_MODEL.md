@@ -74,17 +74,38 @@ plain-language reasons.
 Synthetic, deterministic, and labelled `DEMO DATA` at the data layer, the API
 layer, in the shell, and on every report and export.
 
-**Fictional names throughout.** "Kandara State", "Eguma", "Chalawa". Attaching
-synthetic figures to real Nigerian states or LGAs would produce documents that
-read as real reporting about real places — exactly the confusion the product
-must avoid. A test asserts that no real state name appears.
+**Real administrative geography, constructed facility names.** The hierarchy is
+the actual shape of the two programme states: Bauchi's 20 LGAs and Sokoto's 23,
+with their real names and real boundaries. This was a deliberate reversal of the
+original fictional-names approach — a map of invented places cannot be checked
+against anything, and the deployment target is known. What prevents the
+confusion is the pervasive `DEMO DATA` labelling, which appears at the data
+layer, in the API, in the shell and on every report and export.
+
+Facility names remain constructed (`"Katagum Central Primary Health Centre"`),
+because naming a real service point and attaching an invented score to it makes
+a claim about an identifiable place. A test asserts that every facility name
+ends in a generic facility type.
 
 **Internally consistent by construction.** Facility numerators and denominators
 are generated first; every higher level is aggregated from them, with percentages
 recomputed from summed numerators and denominators rather than averaged. An LGA
 figure genuinely is the sum of its facilities, and a test verifies this.
 
-**Rooted at the state**, with no synthetic national tier above a single state.
+**One root above both states.**
+
+```
+ASPIRE-GAC Programme    COUNTRY    aspire-programme
+├── Bauchi State        STATE      state-bauchi     20 LGAs, 130 facilities
+└── Sokoto State        STATE      state-sokoto     23 LGAs, 151 facilities
+```
+
+327 org units in total. The root exists so that a programme-wide user has a
+genuine aggregate to read and one geography to compare the states from, and so
+that `getRootOrgUnit()` has a single answer — with two parentless units it
+returned whichever the database listed first. A state-scoped user is scoped to
+their state node and never sees the root or the sibling. See
+`SCOPE_DECISIONS.md` §2.
 
 ### Planted signals
 
@@ -93,16 +114,21 @@ answers to find. They are the ground truth the eval set asserts against.
 
 | Signal | Where | Purpose |
 |---|---|---|
-| Sustained decline in adolescent SRHR | Eguma, Fankama, Ilesan, Lamurde | Trend detection, attribution, "why is performance declining" |
-| Sustained improvement | Chalawa | "Which areas improved most" |
-| Reporting collapse (~48%, worse recently) | Hadeja West | Completeness detection, low data confidence, the performance-vs-confidence distinction |
+| Sustained decline in adolescent SRHR | Darazo and Ningi (Bauchi); Isa and Gada (Sokoto) | Trend detection, attribution, "why is performance declining" — split across both states so each has its own declines to find |
+| Sustained recent improvement, from a low base | Katagum (Bauchi) | "Which areas improved most". The low base matters: a unit already near the top of the scale has no headroom, and its improvement would not show in the score |
+| Reporting collapse (~30%, worse recently) | Gudu (Sokoto) | Completeness detection, low data confidence, the performance-vs-confidence distinction |
+| Sokoto seeded at 0.93 of Bauchi's capability | Every Sokoto LGA | Cross-state comparison. Without a planted difference the comparison would be exercised against noise and could pass by luck |
 | Impossible value (128.4%) | One facility, ANC4 | Validity detection |
 | Numerator > denominator | One facility, skilled delivery | Consistency detection |
 | Value repeated 5 periods | One facility, mCPR | Repeated-value detection |
 | 7.5× spike | One facility, new FP acceptors | Statistical anomaly detection |
 
-Hadeja West is deliberately *not* the lowest performer. If performance and data
+Gudu is deliberately *not* the lowest performer. If performance and data
 confidence were entangled it would be, and a test asserts that it is not.
+
+**None of this reflects any real place.** The LGAs carrying planted signals were
+chosen arbitrarily, and the state-level difference is invented. The figures are
+labelled `DEMO DATA` everywhere they appear.
 
 ### Realism
 

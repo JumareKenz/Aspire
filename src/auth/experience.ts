@@ -59,14 +59,29 @@ export interface Experience {
   showEvidence: boolean;
 }
 
-const EXECUTIVE_REPORTS: ReportType[] = ['EXECUTIVE_BRIEF', 'INTELLIGENCE_SUMMARY'];
+/**
+ * STATE_COMPARISON appears in both lists because report *types* are a function
+ * of role, and comparing states is a leadership question as much as an
+ * analytical one. Whether a given user can actually produce it is a question
+ * of scope, answered separately by `reportTypesFor` — a state-scoped user of
+ * either role has nothing to compare.
+ */
+const EXECUTIVE_REPORTS: ReportType[] = [
+  'EXECUTIVE_BRIEF',
+  'STATE_COMPARISON',
+  'INTELLIGENCE_SUMMARY',
+];
 const ALL_REPORTS: ReportType[] = [
   'EXECUTIVE_BRIEF',
   'QUARTERLY_PERFORMANCE',
+  'STATE_COMPARISON',
   'AREA_PERFORMANCE',
   'DATA_QUALITY',
   'INTELLIGENCE_SUMMARY',
 ];
+
+/** Report types that need more than one state to say anything. */
+export const CROSS_STATE_REPORTS: ReportType[] = ['STATE_COMPARISON'];
 
 const BY_ROLE: Record<Role, Experience> = {
   EXECUTIVE: {
@@ -106,6 +121,24 @@ const BY_ROLE: Record<Role, Experience> = {
 
 export function experienceFor(user: Pick<User, 'role'>): Experience {
   return BY_ROLE[user.role] ?? BY_ROLE.EXECUTIVE;
+}
+
+/**
+ * Report types a user may actually generate: their role's list, minus the ones
+ * their geographic scope cannot support.
+ *
+ * This is the one place the two axes meet, and they meet by intersection
+ * rather than by one overriding the other. `stateCount` is supplied by the
+ * caller, which has already resolved the user's accessible states — this
+ * function stays free of I/O so it can be reasoned about and tested directly.
+ */
+export function reportTypesFor(
+  user: Pick<User, 'role'>,
+  stateCount: number,
+): ReportType[] {
+  const types = experienceFor(user).reportTypes;
+  if (stateCount > 1) return types;
+  return types.filter((type) => !CROSS_STATE_REPORTS.includes(type));
 }
 
 /** Route each navigation key points at, so nav and guards cannot disagree. */

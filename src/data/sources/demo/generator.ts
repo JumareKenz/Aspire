@@ -27,18 +27,41 @@ import { buildDemoGeography } from './geography';
  */
 
 /**
- * Planted signals, keyed to real Gombe State LGAs.
+ * Planted signals, keyed to real LGAs across both programme states.
  *
  * These make the demo dataset exercise the analytical engines with known
  * answers. The LGAs were chosen arbitrarily; nothing here reflects the actual
  * performance of any real local government area.
  */
-/** LGAs given a sustained decline in adolescent SRHR indicators. */
-export const DECLINING_LGAS = ['lga-shongom', 'lga-balanga', 'lga-dukku', 'lga-nafada'];
-/** LGA given badly incomplete reporting, so data confidence is low there. */
-export const LOW_REPORTING_LGA = 'lga-funakaye';
-/** LGA given a strong sustained improvement. */
-export const IMPROVING_LGA = 'lga-billiri';
+/**
+ * LGAs given a sustained decline in adolescent SRHR indicators. Deliberately
+ * split across both states so a cross-state comparison has real structure.
+ */
+export const DECLINING_LGAS = [
+  'lga-bauchi-darazo',
+  'lga-bauchi-ningi',
+  'lga-sokoto-isa',
+  'lga-sokoto-gada',
+];
+/**
+ * LGA given badly incomplete reporting, so data confidence lands in the LOW
+ * band there. The rate is set well below the band threshold rather than just
+ * under it: a demo dataset in which no unit ever reaches LOW confidence would
+ * not exercise the band at all.
+ */
+export const LOW_REPORTING_LGA = 'lga-sokoto-gudu';
+/**
+ * LGA given a strong recent improvement. It starts from a low base as well,
+ * because an LGA already near the top of the scale has no headroom left and
+ * its improvement would not be visible in the score at all — "most improved"
+ * has to be a question the data can actually answer.
+ */
+export const IMPROVING_LGA = 'lga-bauchi-katagum';
+/**
+ * Sokoto is seeded a little below Bauchi overall, so "which state is
+ * performing better, and why" has a determinate answer for the evaluation set.
+ */
+export const WEAKER_STATE_PREFIX = 'lga-sokoto-';
 
 const ADOLESCENT_INDICATORS = ['adolescent-fp-uptake', 'youth-friendly-services', 'adolescent-anc1'];
 
@@ -64,10 +87,17 @@ function lgaProfile(lga: OrgUnit) {
   const rng = mulberry32(hashSeed(`lga:${lga.id}`));
   // Struggling LGAs start from a lower base as well as declining, which is what
   // makes them appear near the bottom of the ranking rather than mid-table.
-  const penalty = DECLINING_LGAS.includes(lga.id) ? 0.86 : 1;
+  const penalty = DECLINING_LGAS.includes(lga.id)
+    ? 0.86
+    : lga.id === IMPROVING_LGA
+      ? 0.78
+      : 1;
+  // A modest state-level difference, so cross-state comparison is meaningful
+  // without either state looking implausible.
+  const stateFactor = lga.id.startsWith(WEAKER_STATE_PREFIX) ? 0.93 : 1;
   return {
-    capability: clamp((0.72 + rng() * 0.46) * penalty, 0.5, 1.12),
-    reportingQuality: lga.id === LOW_REPORTING_LGA ? 0.48 : clamp(0.9 + rng() * 0.1, 0.85, 0.995),
+    capability: clamp((0.72 + rng() * 0.46) * penalty * stateFactor, 0.5, 1.12),
+    reportingQuality: lga.id === LOW_REPORTING_LGA ? 0.3 : clamp(0.9 + rng() * 0.1, 0.85, 0.995),
   };
 }
 
@@ -90,9 +120,12 @@ function trendFactor(
     if (indicatorId === 'pnc-48h') return 1 - 0.28 * recent;
   }
   if (lgaId === IMPROVING_LGA) {
-    return 1 + 0.22 * progress;
+    // Concentrated in the recent half, mirroring the planted declines, so that
+    // a period-on-period comparison finds it rather than a twelve-period
+    // regression being the only way to see it.
+    return 1 + 0.1 * progress + 0.45 * recent;
   }
-  // Background national drift: slow, small, and different per indicator.
+  // Background programme-wide drift: slow, small, and different per indicator.
   const drift = ((hashSeed(indicatorId) % 100) / 100 - 0.5) * 0.12;
   return 1 + drift * progress;
 }
@@ -297,7 +330,15 @@ export function generateDemoData(
   for (const lga of geography.lgas) {
     aggregate(lga, facilitiesByLga.get(lga.id) ?? []);
   }
-  aggregate(geography.state, geography.lgas);
+  for (const state of geography.states) {
+    aggregate(
+      state,
+      geography.lgas.filter((lga) => lga.parentId === state.id),
+    );
+  }
+  // The programme root aggregates the states, giving global users a genuine
+  // combined figure rather than an arbitrary pick of one state.
+  aggregate(geography.root, geography.states);
 
   return { orgUnits: geography.all, observations, reporting };
 }

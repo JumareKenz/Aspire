@@ -25,50 +25,66 @@ describe('deterministic generation', () => {
     const second = generateDemoData(INDICATORS, periods, DATASETS);
     expect(first.observations.length).toBe(second.observations.length);
     expect(first.observations.slice(0, 200)).toEqual(second.observations.slice(0, 200));
-  });
+    // Two full generations over 43 LGAs and their facilities; the default
+    // five-second budget is not enough and a timeout here would say nothing
+    // about determinism.
+  }, 30_000);
 });
 
 describe('demo geography', () => {
-  it('is rooted at the state, with no synthetic national tier', () => {
+  it('puts both programme states under one root, so a global user has an aggregate to read', () => {
     const geography = buildDemoGeography();
-    expect(geography.state.parentId).toBeNull();
-    expect(geography.all.some((unit) => unit.level === 'COUNTRY')).toBe(false);
+    expect(geography.root.parentId).toBeNull();
+    expect(geography.root.level).toBe('COUNTRY');
+    expect(geography.states.map((state) => state.name).sort()).toEqual([
+      'Bauchi State',
+      'Sokoto State',
+    ]);
+    for (const state of geography.states) {
+      expect(state.parentId).toBe(geography.root.id);
+    }
+    // Exactly one root: the application resolves a user's scope root by
+    // walking up, and a second parentless unit would make that ambiguous.
+    expect(geography.all.filter((unit) => unit.parentId === null)).toHaveLength(1);
   });
 
-  it('uses the eleven real LGAs of Gombe State', () => {
+  it('uses the real LGAs of Bauchi and Sokoto', () => {
     const geography = buildDemoGeography();
-    expect(geography.lgas).toHaveLength(11);
-    expect(geography.lgas.map((unit) => unit.name).sort()).toEqual([
-      'Akko',
-      'Balanga',
-      'Billiri',
-      'Dukku',
-      'Funakaye',
-      'Gombe',
-      'Kaltungo',
-      'Kwami',
-      'Nafada',
-      'Shongom',
-      'Yamaltu/Deba',
-    ]);
+    expect(geography.lgas).toHaveLength(43);
+    const byState = (stateId: string) =>
+      geography.lgas.filter((lga) => lga.parentId === stateId).length;
+    expect(byState('state-bauchi')).toBe(20);
+    expect(byState('state-sokoto')).toBe(23);
+    const names = geography.lgas.map((lga) => lga.name);
+    expect(names).toContain('Katagum');
+    expect(names).toContain('Sabon Birni');
+    expect(new Set(names.map((name) => name.toLowerCase())).size).toBeGreaterThanOrEqual(42);
   });
 
   it('gives every LGA an id that matches the shipped boundary file', () => {
     const boundaries = JSON.parse(
-      readFileSync(resolve(process.cwd(), 'public/geo/gombe-lgas.geojson'), 'utf8'),
+      readFileSync(resolve(process.cwd(), 'public/geo/lgas.geojson'), 'utf8'),
     ) as { features: Array<{ properties: { orgUnitId: string } }> };
     const boundaryIds = new Set(boundaries.features.map((f) => f.properties.orgUnitId));
     for (const lga of buildDemoGeography().lgas) {
       expect(boundaryIds.has(lga.id)).toBe(true);
     }
+    expect(boundaryIds.size).toBe(43);
   });
 
   it('gives every unit a materialised path back to the root', () => {
     const geography = buildDemoGeography();
     for (const unit of geography.all) {
-      expect(unit.path[0]).toBe(geography.state.id);
+      expect(unit.path[0]).toBe(geography.root.id);
       expect(unit.path[unit.path.length - 1]).toBe(unit.id);
     }
+  });
+
+  it('keeps a state path free of the other state, so scope filtering separates them', () => {
+    const geography = buildDemoGeography();
+    const sokoto = geography.all.filter((unit) => unit.path.includes('state-sokoto'));
+    expect(sokoto.some((unit) => unit.path.includes('state-bauchi'))).toBe(false);
+    expect(sokoto.length).toBeGreaterThan(23);
   });
 
   it('does not name individual real health facilities', () => {
@@ -165,11 +181,58 @@ describe('generated dataset', () => {
       return records.filter((record) => record.reported).length / records.length;
     };
     const lgas = data.orgUnits.filter((unit) => unit.level === 'LGA');
-    expect(rate(LOW_REPORTING_LGA)).toBeLessThan(0.6);
+    expect(rate(LOW_REPORTING_LGA)).toBeLessThan(0.45);
     for (const lga of lgas) {
       if (lga.id === LOW_REPORTING_LGA) continue;
       expect(rate(lga.id)).toBeGreaterThan(0.75);
     }
+  });
+
+  it('gives the cross-state comparison a determinate answer', () => {
+    // The generator applies a state factor so that one state is genuinely
+    // weaker than the other. Without a planted difference a comparison feature
+    // would be exercised against noise and could pass by luck.
+    const indicatorId = 'adolescent-fp-uptake';
+    const period = periods[periods.length - 1].id;
+    const stateValue = (stateId: string) =>
+      data.observations.find(
+        (observation) =>
+          observation.orgUnitId === stateId &&
+          observation.indicatorId === indicatorId &&
+          observation.periodId === period,
+      )?.value ?? null;
+
+    const bauchi = stateValue('state-bauchi');
+    const sokoto = stateValue('state-sokoto');
+    expect(bauchi).not.toBeNull();
+    expect(sokoto).not.toBeNull();
+    expect(sokoto!).toBeLessThan(bauchi!);
+  });
+
+  it('aggregates the programme root from both states', () => {
+    const root = data.orgUnits.find((unit) => unit.level === 'COUNTRY')!;
+    const period = periods[periods.length - 1].id;
+    const indicatorId = 'adolescent-fp-uptake';
+    const rootValue = data.observations.find(
+      (observation) =>
+        observation.orgUnitId === root.id &&
+        observation.indicatorId === indicatorId &&
+        observation.periodId === period,
+    );
+    expect(rootValue).toBeDefined();
+    const states = ['state-bauchi', 'state-sokoto'].map(
+      (id) =>
+        data.observations.find(
+          (observation) =>
+            observation.orgUnitId === id &&
+            observation.indicatorId === indicatorId &&
+            observation.periodId === period,
+        )!.value,
+    );
+    // The root sits between the two states it is built from — it is a real
+    // aggregate, not one state relabelled.
+    expect(rootValue!.value).toBeGreaterThanOrEqual(Math.min(...states) - 0.01);
+    expect(rootValue!.value).toBeLessThanOrEqual(Math.max(...states) + 0.01);
   });
 
   it('records a due date for every expected submission', () => {

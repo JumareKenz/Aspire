@@ -61,7 +61,7 @@ export async function listDescendants(rootId: string, level?: OrgLevel): Promise
   return rows.map(toOrgUnit);
 }
 
-/** The root of the hierarchy, used as the default scope for national users. */
+/** The root of the hierarchy, used as the default scope for programme-wide users. */
 export async function getRootOrgUnit(): Promise<OrgUnit | null> {
   const row = await queryOne<Row>(
     'SELECT * FROM org_units WHERE parent_id IS NULL AND active ORDER BY level LIMIT 1',

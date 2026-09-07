@@ -19,6 +19,8 @@ import { RecommendationList } from '@/design/patterns/RecommendationList';
 import { can } from '@/auth/rbac';
 import { experienceFor } from '@/auth/experience';
 import { ExecutiveBriefing } from './ExecutiveBriefing';
+import { accessibleStates, compareStates } from '@/services/states';
+import { StateComparisonPanel, StateSummaryRow } from '@/design/patterns/StateComparison';
 
 export const metadata: Metadata = { title: 'Overview' };
 export const dynamic = 'force-dynamic';
@@ -31,6 +33,16 @@ export default async function OverviewPage({
   const context = await resolvePageContext(await searchParams);
   const experience = experienceFor(context.user);
   const overview = await getOverview(context.orgUnit.id, context.periodId);
+
+  // Cross-state comparison is offered on scope, never on role: it appears only
+  // when the user actually holds more than one state, and only while they are
+  // looking at the level that spans them. A state-scoped user of any role gets
+  // one state back from accessibleStates() and so never sees the section.
+  const states = await accessibleStates(context.user);
+  const comparison =
+    states.length > 1 && context.orgUnit.level === 'COUNTRY'
+      ? await compareStates(states, context.periodId)
+      : null;
 
   if (!overview || overview.scorecard.overallScore === null) {
     return (
@@ -88,6 +100,14 @@ export default async function OverviewPage({
             />
           }
         />
+        {comparison ? (
+          <section className="mb-8" aria-labelledby="states-summary">
+            <SectionHeading description="Both programme states, scored on the same methodology for this period.">
+              <span id="states-summary">The programme at a glance</span>
+            </SectionHeading>
+            <StateSummaryRow comparison={comparison} periodId={context.periodId} />
+          </section>
+        ) : null}
         <ExecutiveBriefing data={overview} attentionLimit={experience.attentionLimit} />
       </>
     );
@@ -204,6 +224,16 @@ export default async function OverviewPage({
           </Card>
         </div>
       </section>
+
+      {/* How do the states compare? -------------------------------------- */}
+      {comparison ? (
+        <section className="mb-8" aria-labelledby="state-comparison">
+          <SectionHeading description="Bauchi and Sokoto side by side. Only users whose scope covers both states can see this.">
+            <span id="state-comparison">How the states compare</span>
+          </SectionHeading>
+          <StateComparisonPanel comparison={comparison} periodId={context.periodId} />
+        </section>
+      ) : null}
 
       {/* What needs attention? ------------------------------------------ */}
       <section className="mb-8" aria-labelledby="needs-attention">

@@ -15,6 +15,7 @@ import type { User } from '@/data/repositories/users';
 
 let analyst: User;
 let scopedUser: User;
+let stateScoped: User;
 let rootId: string;
 let periodId: string;
 
@@ -22,10 +23,14 @@ beforeAll(async () => {
   await createSchema(schema);
   await ensureBootstrapped();
   const users = await listUsers();
-  analyst = users.find((user) => user.role === 'ANALYST')!;
+  analyst = users.find((user) => user.role === 'ANALYST' && user.scope.length === 0)!;
   // A user scoped to a single LGA, to check that scope is enforced inside the
   // pipeline and not only at the HTTP boundary.
-  scopedUser = { ...analyst, id: `${analyst.id}-scoped`, scope: ['lga-balanga'] };
+  scopedUser = { ...analyst, id: `${analyst.id}-scoped`, scope: ['lga-bauchi-darazo'] };
+  // A user scoped to one of the two programme states.
+  stateScoped = users.find(
+    (user) => user.role === 'ANALYST' && user.scope.includes('state-bauchi'),
+  )!;
   rootId = (await getRootOrgUnit())!.id;
   periodId = latestCompletePeriodId();
 }, 120_000);
@@ -35,7 +40,7 @@ afterAll(async () => {
 });
 
 describe('demo dataset', () => {
-  it('produces a scorable state with all indicators covered', async () => {
+  it('produces a scorable programme aggregate with all indicators covered', async () => {
     const card = await getScorecard(rootId, periodId);
     expect(card).not.toBeNull();
     expect(card!.overallScore).not.toBeNull();
@@ -43,9 +48,10 @@ describe('demo dataset', () => {
     expect(card!.domains).toHaveLength(6);
   });
 
-  it('aggregates consistently — an LGA total is built from its facilities', async () => {
+  it('aggregates consistently — every state total is built from its own LGAs', async () => {
     const children = await getChildScorecards(rootId, periodId);
-    expect(children.length).toBeGreaterThan(10);
+    // The root's children are the two programme states.
+    expect(children).toHaveLength(2);
     for (const child of children) {
       expect(child.overallScore).not.toBeNull();
       expect(child.overallScore!).toBeGreaterThanOrEqual(0);
@@ -54,9 +60,9 @@ describe('demo dataset', () => {
   });
 
   it('marks the planted low-reporting LGA as low confidence while others stay high', async () => {
-    const children = await getChildScorecards(rootId, periodId);
-    const weak = children.find((child) => child.orgUnitId === 'lga-funakaye')!;
-    const others = children.filter((child) => child.orgUnitId !== 'lga-funakaye');
+    const lgas = await getChildScorecards('state-sokoto', periodId);
+    const weak = lgas.find((child) => child.orgUnitId === 'lga-sokoto-gudu')!;
+    const others = lgas.filter((child) => child.orgUnitId !== 'lga-sokoto-gudu');
     expect(weak.dataConfidence.band).toBe('LOW');
     expect(weak.dataConfidence.reasons.length).toBeGreaterThan(0);
     expect(others.every((child) => child.dataConfidence.band !== 'LOW')).toBe(true);
@@ -65,10 +71,28 @@ describe('demo dataset', () => {
   it('keeps performance and data confidence independent', async () => {
     // The low-confidence LGA is not the lowest performer: if the two measures
     // were entangled, it would be.
-    const children = await getChildScorecards(rootId, periodId);
-    const lowest = [...children].sort((a, b) => (a.overallScore ?? 0) - (b.overallScore ?? 0))[0];
-    expect(lowest.orgUnitId).not.toBe('lga-funakaye');
+    const lgas = await getChildScorecards('state-sokoto', periodId);
+    const lowest = [...lgas].sort((a, b) => (a.overallScore ?? 0) - (b.overallScore ?? 0))[0];
+    expect(lowest.orgUnitId).not.toBe('lga-sokoto-gudu');
   });
+
+  it('scores both states on the same methodology, from their own LGAs', async () => {
+    const states = await getChildScorecards(rootId, periodId);
+    const root = (await getScorecard(rootId, periodId))!;
+    for (const state of states) {
+      expect(state.methodologyVersion).toBe(root.methodologyVersion);
+      const lgas = await getChildScorecards(state.orgUnitId, periodId);
+      expect(lgas.length).toBeGreaterThan(15);
+      for (const lga of lgas) {
+        // No LGA of one state may appear beneath the other.
+        expect(lga.orgUnitId.startsWith(`lga-${state.orgUnitId.replace('state-', '')}-`)).toBe(true);
+      }
+    }
+    // The programme aggregate lies between the two states it is built from.
+    const scores = states.map((state) => state.overallScore!);
+    expect(root.overallScore!).toBeGreaterThanOrEqual(Math.min(...scores));
+    expect(root.overallScore!).toBeLessThanOrEqual(Math.max(...scores));
+  }, 60_000);
 });
 
 describe('intelligence evaluation set', () => {
@@ -93,12 +117,43 @@ describe('pipeline guarantees', () => {
   });
 
   it('answers within the asking user’s geographic scope, not the requested one', async () => {
-    const answer = await answerQuestion('How is Billiri performing?', scopedUser, {
-      orgUnitId: 'lga-balanga',
+    const answer = await answerQuestion('How is Ningi performing?', scopedUser, {
+      orgUnitId: 'lga-bauchi-darazo',
       periodId,
     });
-    // Chalawa is outside this user's scope, so the query falls back to their own.
-    expect(answer.result!.query.orgUnitId).toBe('lga-balanga');
+    // Ningi is outside this user's scope, so the platform refuses rather than
+    // answering about somewhere else under the question that was asked.
+    expect(answer.declined).toBe(true);
+    expect(answer.result).toBeNull();
+    expect(answer.sections[0].body).toMatch(/cannot answer a question about/i);
+  });
+
+  it('refuses a cross-state question from a user who holds only one state', async () => {
+    const answer = await answerQuestion('Compare Bauchi and Sokoto', stateScoped, {
+      orgUnitId: 'state-bauchi',
+      periodId,
+    });
+    expect(answer.declined).toBe(true);
+    expect(answer.result).toBeNull();
+    // It names what it cannot show, and does not quietly answer about Bauchi
+    // alone under a question that asked about both.
+    expect(answer.sections[0].body).toContain('Sokoto');
+    expect(answer.sections[0].body).not.toMatch(/\d/);
+  });
+
+  it('answers the same cross-state question for a user who holds both states', async () => {
+    const answer = await answerQuestion('Compare Bauchi and Sokoto', analyst, {
+      orgUnitId: rootId,
+      periodId,
+    });
+    expect(answer.declined).toBe(false);
+    expect(answer.result!.query.kind).toBe('COMPARE_UNITS');
+    // A comparison lays the domains out as rows and the geographies as columns,
+    // so it is the resolved query that names the two states.
+    expect(answer.result!.query.compareOrgUnitIds).toEqual(
+      expect.arrayContaining(['state-bauchi', 'state-sokoto']),
+    );
+    expect(answer.result!.rows.length).toBeGreaterThan(1);
   });
 
   it('states plainly when it cannot answer rather than inventing something', async () => {

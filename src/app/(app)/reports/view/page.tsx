@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { assertOrgUnitInScope, requireUser } from '@/auth/server';
 import { generateReport, REPORT_TYPES, type ReportType } from '@/services/reports';
-import { experienceFor } from '@/auth/experience';
+import { reportTypesFor } from '@/auth/experience';
+import { accessibleStates } from '@/services/states';
 import { latestCompletePeriodId } from '@/data/sync/periods';
 import { recordAudit } from '@/data/repositories/audit';
 import type { SearchParams } from '@/services/context';
@@ -28,7 +29,8 @@ export default async function ReportViewPage({
   const orgUnitId = first(params.orgUnit);
   const periodId = first(params.period) ?? latestCompletePeriodId();
   if (!type || !REPORT_TYPES.includes(type) || !orgUnitId) notFound();
-  if (!experienceFor(user).reportTypes.includes(type)) notFound();
+  const permittedTypes = reportTypesFor(user, (await accessibleStates(user)).length);
+  if (!permittedTypes.includes(type)) notFound();
 
   await assertOrgUnitInScope(user, orgUnitId);
   const report = await generateReport(type, orgUnitId, periodId);

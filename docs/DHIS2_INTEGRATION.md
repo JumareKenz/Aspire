@@ -8,12 +8,30 @@ official Web API, configured for the target instance.
 | | |
 |---|---|
 | Instance | `https://dhis2.hiva.chat` |
-| Deployment | Gombe State |
+| Deployment | State-rooted |
 | Hierarchy | State → LGA → Ward → Community → Facility |
 | Metadata | 8 indicators, 187 data elements, 1,264 organisation units |
 | Indicators mapped | 5 of 17 carry real UIDs (see below) |
 | Credentials | **Not supplied** |
 | Live verification | **Not performed** — the instance returned `502 Bad Gateway` (its backend on port 9090 was not running) at the time of this work |
+
+## Two states, one connection
+
+ASPIRE-GAC covers **Bauchi and Sokoto**. The adapter holds **one** DHIS2
+connection, and the reference instance is state-rooted — which in a state-rooted
+world means one instance per state. **Live two-state synchronisation is
+therefore not possible as built.** Two ways to close it:
+
+1. **Point at an instance rooted above both states** and set `DHIS2_LEVEL_MAP`
+   to match (`1:COUNTRY,2:STATE,3:LGA,4:FACILITY` for a national deployment).
+   The adapter already supports this; it is a configuration change.
+2. **Extend the source layer to hold a connection per state** and merge at
+   synchronisation. This needs a sync run and credentials per source, and a
+   decision about what a partial failure means for the programme aggregate.
+
+Nothing about authorisation, scoring or the interface depends on which is
+chosen — the canonical model is the same either way. Recorded in
+`SOW_GAP_ANALYSIS.md` §4.
 
 The endpoints, parameters and response shapes follow the documented API and are
 unit-tested against mocked responses. First contact with the live instance
@@ -111,10 +129,10 @@ Behaviour when mappings are missing:
 
 **DHIS2 level numbers have no fixed meaning.** They depend on how the instance
 was built. A national deployment usually roots at the country, so level 1 is the
-country. The Gombe State instance roots at the state, so its level 1 *is* the
+country. The reference instance roots at the state, so its level 1 *is* the
 state:
 
-| DHIS2 level | Gombe instance | Canonical |
+| DHIS2 level | State-rooted instance | Canonical |
 |---|---|---|
 | 1 | State | `STATE` |
 | 2 | LGA | `LGA` |

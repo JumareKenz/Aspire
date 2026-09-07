@@ -224,39 +224,81 @@ describe('Dhis2Adapter', () => {
 });
 
 describe('bundled geography', () => {
-  it('ships Gombe State boundaries wound the way d3-geo needs', async () => {
+  it('ships both states\u2019 boundaries wound the way d3-geo needs', async () => {
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
     const { geoMercator, geoPath } = await import('d3-geo');
 
     const collection = JSON.parse(
-      readFileSync(resolve(process.cwd(), 'public/geo/gombe-lgas.geojson'), 'utf8'),
+      readFileSync(resolve(process.cwd(), 'public/geo/lgas.geojson'), 'utf8'),
     );
-    expect(collection.features).toHaveLength(11);
+    expect(collection.features).toHaveLength(43);
+    const states = new Set<string>(
+      collection.features.map((feature: { properties: { state: string } }) => feature.properties.state),
+    );
+    expect([...states].sort()).toEqual(['Bauchi', 'Sokoto']);
 
     // d3-geo reads polygons spherically and expects clockwise exterior rings —
     // the opposite of the GeoJSON specification. Data wound the other way
     // describes the whole globe minus the intended area, which collapses the
     // fitted scale to world level. A realistic scale is the check that the
     // shapes will actually render.
-    const projection = geoMercator().fitExtent(
-      [
-        [16, 16],
-        [704, 504],
-      ],
-      collection,
-    );
-    expect(projection.scale()).toBeGreaterThan(5000);
+    //
+    // The two states are ~700km apart, so the programme-wide extent is fitted
+    // at a smaller scale than a single state would be; each state is checked at
+    // its own extent below, which is how the map actually draws them.
+    const canvas: [[number, number], [number, number]] = [
+      [16, 16],
+      [704, 504],
+    ];
+    const whole = geoMercator().fitExtent(canvas, collection);
+    expect(whole.scale()).toBeGreaterThan(1500);
 
-    const path = geoPath(projection);
-    for (const feature of collection.features) {
-      const [[x0, y0], [x1, y1]] = path.bounds(feature);
-      // No single LGA may span the whole canvas.
-      expect(x1 - x0).toBeLessThan(600);
-      expect(y1 - y0).toBeLessThan(480);
-      expect(x1 - x0).toBeGreaterThan(5);
-      expect(y1).toBeGreaterThan(y0);
-      expect(path(feature)).toBeTruthy();
+    for (const state of states) {
+      const features = collection.features.filter(
+        (feature: { properties: { state: string } }) => feature.properties.state === state,
+      );
+      const subset = { type: 'FeatureCollection' as const, features };
+      const projection = geoMercator().fitExtent(canvas, subset);
+      expect(projection.scale()).toBeGreaterThan(5000);
+
+      const path = geoPath(projection);
+      for (const feature of features) {
+        const [[x0, y0], [x1, y1]] = path.bounds(feature);
+        // No single LGA may span the whole canvas.
+        expect(x1 - x0).toBeLessThan(600);
+        expect(y1 - y0).toBeLessThan(480);
+        expect(x1 - x0).toBeGreaterThan(5);
+        expect(y1).toBeGreaterThan(y0);
+        expect(path(feature)).toBeTruthy();
+      }
     }
+  });
+
+  it('gives every boundary the org unit id and state the application joins on', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const collection = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'public/geo/lgas.geojson'), 'utf8'),
+    ) as {
+      features: Array<{
+        properties: { orgUnitId: string; name: string; state: string; lon: number; lat: number };
+      }>;
+    };
+    const ids = new Set<string>();
+    for (const feature of collection.features) {
+      const { orgUnitId, name, state, lon, lat } = feature.properties;
+      expect(orgUnitId).toMatch(/^lga-(bauchi|sokoto)-/);
+      expect(orgUnitId.startsWith(`lga-${state.toLowerCase()}-`)).toBe(true);
+      expect(name.length).toBeGreaterThan(1);
+      // Nigeria's bounding box, so a swapped lon/lat pair fails here.
+      expect(lon).toBeGreaterThan(2.5);
+      expect(lon).toBeLessThan(15);
+      expect(lat).toBeGreaterThan(4);
+      expect(lat).toBeLessThan(14);
+      expect(ids.has(orgUnitId)).toBe(false);
+      ids.add(orgUnitId);
+    }
+    expect(ids.size).toBe(43);
   });
 });

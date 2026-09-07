@@ -4,7 +4,10 @@ Turns government DHIS2 SRHR reporting into performance intelligence: scorecards,
 data-quality intelligence, forecasting, evidence-grounded recommendations and
 automated reports.
 
-Targeting **Gombe State**.
+Serving **Bauchi** and **Sokoto** from one application, one database and one
+authentication system. Role and geographic scope are independent: any role can
+be held programme-wide or restricted to a single state or LGA. See
+[`docs/ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md`](docs/ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md).
 
 ## Getting started
 
@@ -33,11 +36,16 @@ on first request with a clearly-labelled demo dataset.
 
 Accounts created on first seed:
 
-| Account | Tier | Experience |
-|---|---|---|
-| `executive@aspire.local` | Executive / governance | Briefing: position, attention, change, recommendations. Area level. |
-| `analyst@aspire.local` | Programme, LGA, M&E and technical | Full workspace: facility drill-down, indicator detail, data quality, actions. |
-| `admin@aspire.local` | System administrator | The above, plus users, indicators, sync and audit. |
+Six accounts, chosen so that role and scope each vary independently of the other:
+
+| Account | Role | Scope | Experience |
+|---|---|---|---|
+| `executive@aspire.local` | Executive | Both states | Briefing: position, attention, change, recommendations. Area level. Cross-state comparison. |
+| `bauchi.executive@aspire.local` | Executive | Bauchi | The same briefing, Bauchi only. No comparison — there is nothing to compare. |
+| `analyst@aspire.local` | Programme, LGA, M&E and technical | Both states | Full workspace: facility drill-down, indicator detail, data quality, actions. Cross-state comparison. |
+| `bauchi.analyst@aspire.local` | The same | Bauchi | The same workspace, Bauchi only. |
+| `sokoto.analyst@aspire.local` | The same | Sokoto | The same workspace, Sokoto only. |
+| `admin@aspire.local` | System administrator | Both states | The above, plus users, indicators, sync and audit. |
 
 The password is whatever `ASPIRE_SEED_PASSWORD` was set to when the database was
 first seeded.
@@ -63,24 +71,33 @@ each indicator to its DHIS2 identifier in **Admin → Indicators**, then run
 | [`docs/ENGINEERING_GUIDE.md`](docs/ENGINEERING_GUIDE.md) | Conventions and the rules that must hold |
 | [`docs/ASPIRE_REPOSITORY_ASSESSMENT.md`](docs/ASPIRE_REPOSITORY_ASSESSMENT.md) | The starting point and why the architecture is what it is |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, stack decisions, performance, failure behaviour |
+| [`docs/ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md`](docs/ROLE_AND_GEOGRAPHIC_ACCESS_MATRIX.md) | Role × scope: the two axes, the combined matrix, and every enforcement point |
 | [`docs/ROLE_ACCESS_MATRIX.md`](docs/ROLE_ACCESS_MATRIX.md) | The three tiers, what each may reach, and where it is enforced |
+| [`docs/SCOPE_DECISIONS.md`](docs/SCOPE_DECISIONS.md) | Multi-state decisions, the alternatives rejected, and what each costs |
 | [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) | Users, workspaces, quality bar |
 | [`docs/SCORECARD_METHODOLOGY.md`](docs/SCORECARD_METHODOLOGY.md) | The configurable scoring engine and how to publish the official methodology |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Canonical types, schema, confidence, the demo dataset |
 | [`docs/DHIS2_INTEGRATION.md`](docs/DHIS2_INTEGRATION.md) | Endpoints, aggregation strategy, mapping |
 | [`docs/AI_ARCHITECTURE.md`](docs/AI_ARCHITECTURE.md) | The governed pipeline and why the model never produces a number |
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | What is done, the honest caveats, defects found |
+| [`docs/SOW_IMPLEMENTATION_TRACEABILITY.md`](docs/SOW_IMPLEMENTATION_TRACEABILITY.md) | Requirement → implementation → test, with a status for each |
+| [`docs/SOW_GAP_ANALYSIS.md`](docs/SOW_GAP_ANALYSIS.md) | What is not delivered, unverified, or resting on a placeholder |
 
 ## Important
 
 - **All figures shown are synthetic** until the DHIS2 instance is connected, and
-  are labelled as such throughout. They sit on real Gombe State geography so the
-  map and hierarchy behave as they will against live data.
+  are labelled as such throughout. They sit on the real administrative geography
+  of Bauchi and Sokoto — 43 LGAs with real boundaries — so the map and hierarchy
+  behave as they will against live data. Facility names are constructed.
 - **The scorecard methodology is provisional.** The official ASPIRE-GAC
   methodology has not been supplied; every derived figure is badged accordingly.
 - **DHIS2 has not been verified against the live server.** The instance was
   unreachable and no credentials were supplied. See
   [`docs/DHIS2_INTEGRATION.md`](docs/DHIS2_INTEGRATION.md).
+- **One DHIS2 connection, two states.** A state-rooted DHIS2 deployment means one
+  instance per state, and the adapter holds a single connection. Live two-state
+  synchronisation needs either an instance rooted above both states or a
+  per-state source. See [`docs/SOW_GAP_ANALYSIS.md`](docs/SOW_GAP_ANALYSIS.md) §4.
 
 ## Attribution
 

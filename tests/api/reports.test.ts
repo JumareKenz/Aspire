@@ -86,3 +86,68 @@ describe('report generation', () => {
     expect(await generateReport('EXECUTIVE_BRIEF', 'no-such-unit', periodId)).toBeNull();
   });
 });
+
+describe('the cross-state comparison report', () => {
+  it('is refused where there is nothing to compare', async () => {
+    // Asked inside a single state, there is no second state beneath the
+    // selection, so the report is not produced at all rather than produced
+    // with one column.
+    expect(await generateReport('STATE_COMPARISON', 'state-bauchi', periodId)).toBeNull();
+  });
+
+  it('names both states and puts every domain in the table', async () => {
+    const report = (await generateReport('STATE_COMPARISON', rootId, periodId))!;
+    const domainSection = report.sections.find((section) => section.heading === 'By domain')!;
+    expect(domainSection.table!.columns).toEqual(
+      expect.arrayContaining(['Bauchi State', 'Sokoto State']),
+    );
+    expect(domainSection.table!.rows.length).toBeGreaterThan(1);
+    // A row per domain, with a figure for each state and a difference.
+    for (const row of domainSection.table!.rows) {
+      expect(row).toHaveLength(domainSection.table!.columns.length);
+    }
+  });
+
+  it('quotes the same state scores the scorecards hold', async () => {
+    const report = (await generateReport('STATE_COMPARISON', rootId, periodId))!;
+    const overall = report.sections.find((section) => section.heading === 'Overall')!;
+    for (const stateId of ['state-bauchi', 'state-sokoto']) {
+      const card = (await getScorecard(stateId, periodId))!;
+      const row = overall.table!.rows.find((entry) => entry[0] === card.orgUnitName)!;
+      expect(row).toBeDefined();
+      expect(row[1]).toBe(card.overallScore);
+      expect(row[4]).toBe(card.dataConfidence.score);
+    }
+  });
+
+  it('says plainly when nothing is diverging rather than padding the section', async () => {
+    const report = (await generateReport('STATE_COMPARISON', rootId, periodId))!;
+    const section = report.sections.find(
+      (entry) => entry.heading === 'Moving in opposite directions',
+    )!;
+    if (!section.table) {
+      expect(section.paragraphs[0]).toContain('No domain');
+    } else {
+      expect(section.table.rows.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('report types are an intersection of role and scope', () => {
+  it('withholds the cross-state report from a single-state user of any role', async () => {
+    const { reportTypesFor } = await import('@/auth/experience');
+    for (const role of ['EXECUTIVE', 'ANALYST', 'ADMIN'] as const) {
+      expect(reportTypesFor({ role }, 1)).not.toContain('STATE_COMPARISON');
+      expect(reportTypesFor({ role }, 0)).not.toContain('STATE_COMPARISON');
+      expect(reportTypesFor({ role }, 2)).toContain('STATE_COMPARISON');
+    }
+  });
+
+  it('does not let scope widen what a role may produce', async () => {
+    const { reportTypesFor } = await import('@/auth/experience');
+    // A global executive gains the comparison and nothing else: holding two
+    // states does not turn an executive into an analyst.
+    expect(reportTypesFor({ role: 'EXECUTIVE' }, 2)).not.toContain('DATA_QUALITY');
+    expect(reportTypesFor({ role: 'EXECUTIVE' }, 2)).not.toContain('AREA_PERFORMANCE');
+  });
+});
