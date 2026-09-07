@@ -7,6 +7,7 @@ import { listFindings } from '@/data/repositories/findings';
 import { getChildScorecards } from './scorecards';
 import { previousPeriodId } from '@/core/model/periods';
 import { round } from '@/core/analytics/stats';
+import { env, envOr } from '@/lib/env';
 
 /**
  * Boundary source.
@@ -128,10 +129,10 @@ function loadBoundaries(): BoundaryFeature[] | null {
   // Gombe State LGA boundaries ship with the platform, so the map draws real
   // geography out of the box. ASPIRE_BOUNDARIES_PATH overrides this for another
   // state or a national deployment.
-  const configured = process.env.ASPIRE_BOUNDARIES_PATH ?? DEFAULT_BOUNDARIES;
+  const configured = envOr('ASPIRE_BOUNDARIES_PATH', DEFAULT_BOUNDARIES);
   const path = resolve(process.cwd(), configured);
   if (!existsSync(path)) {
-    if (process.env.ASPIRE_BOUNDARIES_PATH) {
+    if (env('ASPIRE_BOUNDARIES_PATH')) {
       console.warn(
         `[geography] ASPIRE_BOUNDARIES_PATH is set but ${path} does not exist. Using the schematic layout.`,
       );

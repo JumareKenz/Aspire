@@ -8,6 +8,7 @@ import type {
 } from '@/core/model/types';
 import type { ConnectionResult, FetchRequest, SourceAdapter } from '../port';
 import { Dhis2Client, Dhis2Error, type Dhis2Config } from './client';
+import { env } from '@/lib/env';
 
 /**
  * DHIS2 numeric levels do not have a fixed meaning — they depend on how the
@@ -35,7 +36,7 @@ const DEFAULT_LEVEL_MAP: Record<number, OrgLevel> = {
 };
 
 function readLevelMap(): Record<number, OrgLevel> {
-  const configured = process.env.DHIS2_LEVEL_MAP;
+  const configured = env('DHIS2_LEVEL_MAP');
   if (!configured) return DEFAULT_LEVEL_MAP;
 
   const valid = new Set<OrgLevel>(['COUNTRY', 'STATE', 'LGA', 'FACILITY']);

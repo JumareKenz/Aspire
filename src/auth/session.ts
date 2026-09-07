@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { Role } from '@/data/repositories/users';
+import { env } from '@/lib/env';
 
 export const SESSION_COOKIE = 'aspire_session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
@@ -19,7 +20,7 @@ export interface SessionClaims {
  * start a session without it rather than silently signing with a known value.
  */
 function secret(): Uint8Array {
-  const value = process.env.ASPIRE_SESSION_SECRET;
+  const value = env('ASPIRE_SESSION_SECRET');
   if (value && value.length >= 32) return new TextEncoder().encode(value);
   if (process.env.NODE_ENV === 'production') {
     throw new Error(

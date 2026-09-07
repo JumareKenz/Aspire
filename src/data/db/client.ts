@@ -1,6 +1,7 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { env, envNumber } from '@/lib/env';
 
 /**
  * PostgreSQL connection pool.
@@ -20,10 +21,7 @@ declare global {
 }
 
 function connectionString(): string {
-  const url =
-    process.env.DATABASE_URL ??
-    process.env.POSTGRES_URL ??
-    process.env.DATABASE_POSTGRES_URL;
+  const url = env('DATABASE_URL') ?? env('POSTGRES_URL') ?? env('DATABASE_POSTGRES_URL');
   if (!url) {
     throw new Error(
       'No database configured. Set DATABASE_URL (Neon, or any PostgreSQL connection string).',
@@ -40,7 +38,7 @@ function createPool(): Pool {
     ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
     // Serverless instances are short-lived and numerous, so each one holds only
     // a small number of connections and releases them promptly.
-    max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+    max: envNumber('DATABASE_POOL_MAX', 5),
     idleTimeoutMillis: 20_000,
     connectionTimeoutMillis: 15_000,
   });

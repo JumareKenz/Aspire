@@ -1,6 +1,7 @@
 import { seedRegistryIfEmpty } from './repositories/registry';
 import { countUsers, createUser } from './repositories/users';
 import { ensureSchema, queryOne, transaction } from './db/client';
+import { env, envOr } from '@/lib/env';
 import { runSync } from './sync/orchestrator';
 import { recordAudit } from './repositories/audit';
 
@@ -23,7 +24,7 @@ declare global {
  * documented development default is used, and the platform says so on the
  * sign-in screen rather than shipping a silent credential.
  */
-const DEV_PASSWORD = process.env.ASPIRE_SEED_PASSWORD ?? 'aspire-demo';
+const DEV_PASSWORD = envOr('ASPIRE_SEED_PASSWORD', 'aspire-demo');
 
 const SEED_USERS = [
   {
@@ -103,5 +104,5 @@ export function ensureBootstrapped(): Promise<void> {
 }
 
 export const SEED_ACCOUNTS = SEED_USERS.map((user) => ({ email: user.email, role: user.role }));
-export const SEED_PASSWORD_IS_DEFAULT = process.env.ASPIRE_SEED_PASSWORD === undefined;
+export const SEED_PASSWORD_IS_DEFAULT = env('ASPIRE_SEED_PASSWORD') === undefined;
 export const SEED_DEFAULT_PASSWORD = DEV_PASSWORD;

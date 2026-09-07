@@ -13,6 +13,8 @@
  * values and aggregating them here.
  */
 
+import { env, envNumber } from '@/lib/env';
+
 export interface Dhis2Config {
   baseUrl: string;
   /** Personal access token, preferred over basic authentication. */
@@ -35,18 +37,18 @@ export class Dhis2Error extends Error {
 }
 
 export function readDhis2Config(): Dhis2Config | null {
-  const baseUrl = process.env.DHIS2_BASE_URL;
+  const baseUrl = env('DHIS2_BASE_URL');
   if (!baseUrl) return null;
-  const token = process.env.DHIS2_TOKEN;
-  const username = process.env.DHIS2_USERNAME;
-  const password = process.env.DHIS2_PASSWORD;
+  const token = env('DHIS2_TOKEN');
+  const username = env('DHIS2_USERNAME');
+  const password = env('DHIS2_PASSWORD');
   if (!token && !(username && password)) return null;
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     token,
     username,
     password,
-    timeoutMs: Number(process.env.DHIS2_TIMEOUT_MS ?? 30_000),
+    timeoutMs: envNumber('DHIS2_TIMEOUT_MS', 30_000),
   };
 }
 

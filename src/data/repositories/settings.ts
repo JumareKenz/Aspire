@@ -1,5 +1,6 @@
 import { execute, queryOne } from '../db/client';
 import type { DataMode } from '@/core/model/types';
+import { env } from '@/lib/env';
 
 const KEYS = {
   dataMode: 'data.mode',
@@ -42,7 +43,7 @@ export async function setLastSyncAt(at: string): Promise<void> {
 }
 
 export async function getDhis2BaseUrl(): Promise<string | null> {
-  return process.env.DHIS2_BASE_URL ?? (await getSetting(KEYS.dhis2BaseUrl));
+  return env('DHIS2_BASE_URL') ?? (await getSetting(KEYS.dhis2BaseUrl));
 }
 
 export const SETTING_KEYS = KEYS;

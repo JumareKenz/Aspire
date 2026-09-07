@@ -12,23 +12,25 @@
  * platform still answers every question — by rules and templates — so this is a
  * quality setting, not a functionality switch.
  */
+import { env, envFlag } from '@/lib/env';
+
 export const MODEL_ID = 'anthropic/claude-sonnet-5';
 
 export function isModelEnabled(): boolean {
-  const authorised = process.env.ASPIRE_AI_ENABLED === 'true';
-  const credentialled = Boolean(process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN);
+  const authorised = envFlag('ASPIRE_AI_ENABLED');
+  const credentialled = Boolean(env('AI_GATEWAY_API_KEY') ?? env('VERCEL_OIDC_TOKEN'));
   return authorised && credentialled;
 }
 
 export function modelStatus(): { enabled: boolean; reason: string } {
-  if (process.env.ASPIRE_AI_ENABLED !== 'true') {
+  if (!envFlag('ASPIRE_AI_ENABLED')) {
     return {
       enabled: false,
       reason:
         'Language-model assistance is switched off. Questions are answered by the platform’s own analytical engine, which produces the same figures.',
     };
   }
-  if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) {
+  if (!env('AI_GATEWAY_API_KEY') && !env('VERCEL_OIDC_TOKEN')) {
     return {
       enabled: false,
       reason:
