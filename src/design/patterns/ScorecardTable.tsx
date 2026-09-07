@@ -28,10 +28,18 @@ const UNIT_SUFFIX: Record<string, string> = {
 export function ScorecardTable({
   scorecard,
   defaultExpanded,
+  canOpenIndicator = true,
 }: {
   scorecard: Scorecard;
   /** Domain ids to open on first render, e.g. one linked to from an insight. */
   defaultExpanded?: string[];
+  /**
+   * Whether indicator rows open their detail panel. Executives read the
+   * scorecard; the history, contributor breakdown and outlook behind an
+   * indicator are investigative tools, so the row stays plain text for them
+   * rather than looking interactive and refusing.
+   */
+  canOpenIndicator?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(defaultExpanded ?? []));
   const [target, setTarget] = useState<IndicatorDrawerTarget | null>(null);
@@ -113,19 +121,25 @@ export function ScorecardTable({
                       return (
                         <Tr key={indicator.indicatorId} className="bg-[var(--surface-sunken)]">
                           <Td className="pl-9">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setTarget({
-                                  indicatorId: indicator.indicatorId,
-                                  orgUnitId: scorecard.orgUnitId,
-                                  periodId: scorecard.periodId,
-                                })
-                              }
-                              className="text-left text-[12px] text-[var(--text-secondary)] hover:text-[var(--brand-600)] hover:underline"
-                            >
-                              {indicator.name}
-                            </button>
+                            {canOpenIndicator ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTarget({
+                                    indicatorId: indicator.indicatorId,
+                                    orgUnitId: scorecard.orgUnitId,
+                                    periodId: scorecard.periodId,
+                                  })
+                                }
+                                className="text-left text-[12px] text-[var(--text-secondary)] hover:text-[var(--brand-600)] hover:underline"
+                              >
+                                {indicator.name}
+                              </button>
+                            ) : (
+                              <span className="text-[12px] text-[var(--text-secondary)]">
+                                {indicator.name}
+                              </span>
+                            )}
                             {indicator.carriedForward ? (
                               <span
                                 className="ml-1.5 text-[10px] text-[var(--warning-700)]"

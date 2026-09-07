@@ -19,10 +19,10 @@ drwx------ 41 ..
 ```
 
 The directory contained **no files at all** — no `package.json`, no git history, no framework,
-no DHIS2 client, no HIVA brand assets, no design tokens, no components, no tests, no CI.
+no DHIS2 client, no brand assets, no design tokens, no components, no tests, no CI.
 
 A semantic and lexical sweep for the terms named in the brief (`dhis2`, `srhr`, `scorecard`,
-`indicator`, `analytics`, `lga`, `facility`, `anomaly`, `forecast`, `hiva`, `intelligence`, …)
+`indicator`, `analytics`, `lga`, `facility`, `anomaly`, `forecast`, `intelligence`, …)
 returned zero matches, because there was nothing to match against.
 
 **Consequences for the brief:**
@@ -32,7 +32,7 @@ returned zero matches, because there was nothing to match against.
 | Inspect existing architecture | Done — none existed |
 | Identify reusable components | None exist |
 | Do not duplicate existing functionality | No risk |
-| Reuse actual HIVA brand assets | **Not possible — no assets present** (see §6) |
+| Reuse existing brand assets | **Not possible — no assets present** (see §6) |
 | Refactor poor existing architecture | Nothing to refactor |
 | Build necessary architecture properly from scratch | **This is the operative path** |
 
@@ -65,7 +65,7 @@ must not pretend to have them.
 
 | Missing input | Impact | How the build handles it |
 |---|---|---|
-| **HIVA brand assets** (logo, palette, type, tokens) | Cannot apply official brand | A neutral, restrained design system is built with brand values isolated in a single token file (`src/design/tokens.css`) and a single mark component. Swapping in real HIVA assets is a one-file change; no component hard-codes a brand hex. Nothing claims to be official HIVA branding. |
+| **Brand assets** (logo, palette, type, tokens) | Cannot apply a supplied brand | A restrained ASPIRE-GAC design system is built with brand values isolated in the `--brand-*` / `--accent-*` tokens in `globals.css` and a single `Logo` component. No component hard-codes a brand hex. |
 | **Official ASPIRE-GAC scorecard methodology** (indicators, weights, thresholds, targets, aggregation, missing-data rules) | Cannot compute an authoritative score | A *configurable, versioned* methodology engine is built. The seeded methodology is labelled `ASPIRE-SRHR-PROVISIONAL-v0` with `status: "provisional"`, and every surface that renders a score derived from it carries a provisional marker. Publishing the official methodology is a config addition, not a code change. |
 | **Live DHIS2 instance + credentials** | Cannot ingest authoritative data | A source-adapter port with two implementations: a real DHIS2 adapter (official Web API: `/api/analytics`, `/api/organisationUnits`, `/api/indicators`, `/api/dataSets`, `/api/completeDataSetRegistrations`) and a deterministic demo generator. The demo dataset is labelled `DEMO DATA` at the data layer, the API layer and in every view. Switching sources is an environment change. |
 | **Official Nigeria/state LGA boundary GeoJSON** | Cannot draw true geography | The map consumes a pluggable `BoundarySource`. With no official boundaries configured it renders a **schematic cartogram**, explicitly labelled as schematic — it never presents synthetic polygons as real administrative boundaries. Dropping in real GeoJSON switches the map to true geography with no component changes. |

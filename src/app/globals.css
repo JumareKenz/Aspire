@@ -4,60 +4,43 @@
    ASPIRE-GAC design tokens
 
    One place defines colour, type, spacing and elevation. Components reference
-   tokens, never raw values, so the whole product can be rebranded — including
-   with official HIVA assets when they are supplied — by editing this file.
+   tokens, never raw values.
 
-   Brand values below are neutral placeholders. No official HIVA palette was
-   available in the repository, and inventing one would be worse than admitting
-   it: `--brand-*` is the only place a brand colour is defined.
+   Light is the definitive palette and the product's primary experience: it is
+   declared on bare `:root` and is what an unconfigured visit gets. Dark is a
+   deliberate second theme, applied only when the document carries
+   `data-theme="dark"` — never by the operating system alone, so the first
+   render is always the light experience.
    ========================================================================= */
 
 :root {
   color-scheme: light;
 
   /* ------------------------------------------------------------------
-     HIVA / Hayok Medicare brand.
+     ASPIRE-GAC brand.
 
-     Taken from the supplied brand assets: the documented Hayok Medicare
-     palette (forest green #1A5C38, warm gold #C8A46E, off-white #F5F2EC,
-     charcoal #2C2C2C, muted #6B6B6B, light sage #D4E4DA) and the HIVA logo
-     artwork itself, whose deepest green measures #014C37 and whose gold
-     measures #DF9F3E.
-
-     The ramp is built around those two anchors. Brand colour is used for
-     identity, primary actions, selected states and active navigation — not
-     for data, which has its own validated palette below.
+     A deep institutional green with a restrained gold accent: serious enough
+     for government reporting, warm enough not to read as clinical. Brand
+     colour carries identity, primary actions, selected states and active
+     navigation — never data, which has its own validated palette below.
      ------------------------------------------------------------------ */
-  --brand-900: #01301f;
-  --brand-800: #013f2b;
-  --brand-700: #014c37;
-  --brand-600: #1a5c38;
-  --brand-500: #23764a;
-  --brand-400: #3f9468;
-  --brand-200: #a8cdb8;
-  --brand-100: #d4e4da;
-  --brand-050: #eef5f0;
+  --brand-900: #05231a;
+  --brand-800: #0a3125;
+  --brand-700: #0f3d2e;
+  --brand-600: #16543d;
+  --brand-500: #1f6d4f;
+  --brand-400: #3a8f6c;
+  --brand-200: #8fbfa8;
+  --brand-100: #d7e8df;
+  --brand-050: #eef6f2;
 
-  /* Warm gold. Reserved for accents and the mark; never for data series. */
-  --accent-700: #8a6420;
-  --accent-600: #a97f2c;
-  --accent-500: #c8a46e;
-  --accent-400: #df9f3e;
-  --accent-100: #f3e8d5;
-  --accent-050: #faf5ec;
-
-  /*
-   * Primary-action surface and its text, tuned per mode.
-   *
-   * Light mode puts white on the deep brand green. Dark mode cannot: the
-   * brand green has to be lightened to stay visible against a dark surface,
-   * and white on that lightened green only reaches 3.7:1 — short of the 4.5:1
-   * small-text requirement. Dark mode therefore inverts, using dark text on a
-   * lighter green, which clears both the text and the non-text thresholds.
-   */
-  --brand-action: var(--brand-600);
-  --brand-action-hover: var(--brand-700);
-  --brand-action-fg: #ffffff;
+  /* Accent. Used for the mark and sparingly for emphasis; never for a series. */
+  --accent-700: #7a6118;
+  --accent-600: #9c7d1f;
+  --accent-500: #b8952a;
+  --accent-400: #c9a227;
+  --accent-100: #f5edd6;
+  --accent-050: #fbf7ec;
 
   /* Neutrals — a slightly warm grey reads calmer than pure grey on large surfaces. */
   --ink-900: #1f1f1e;
@@ -74,7 +57,7 @@
   --surface: #ffffff;
   --surface-sunken: #faf8f4;
   --surface-raised: #ffffff;
-  /* Hayok off-white, warmed slightly so cards separate from the page. */
+  /* A faintly warm page ground, so cards read as raised without heavy borders. */
   --canvas: #f5f2ec;
   --border: var(--ink-200);
   --border-strong: var(--ink-300);
@@ -86,10 +69,10 @@
 
   /* Status — always paired with a label, icon or shape, never colour alone. */
   --positive-700: #10603a;
-  --positive-600: #15803d;
+  --positive-600: #137536;
   --positive-100: #dcfce7;
   --warning-700: #8a5a06;
-  --warning-600: #b45309;
+  --warning-600: #964406;
   --warning-100: #fef3c7;
   --concern-700: #9b1c1c;
   --concern-600: #c2352c;
@@ -160,69 +143,18 @@
   --sidebar-width: 232px;
 }
 
-:root[data-theme="dark"],
-:root:not([data-theme="light"]) {
-  /* Dark values are applied only under the media query below or an explicit
-     data-theme, so light remains the definitive palette. */
-}
+/* ---------------------------------------------------------------------------
+   Dark theme.
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --surface: #14181c;
-    --surface-sunken: #101417;
-    --surface-raised: #191e23;
-    --canvas: #0c0f12;
-    --border: #262d34;
-    --border-strong: #333c44;
-    --text-primary: #eef1f4;
-    --text-secondary: #a8b1ba;
-    --text-tertiary: #808b95;
-    --ink-100: #1c2126;
-    --ink-050: #171b1f;
-    --ink-200: #262d34;
-    --brand-100: #10301f;
-    --brand-050: #0c2418;
-    --brand-200: #1d5638;
-    --brand-600: #3f9468;
-    --brand-700: #62b088;
-    --accent-500: #d9a95f;
-    --accent-400: #e5ab4a;
-    --accent-100: #33280f;
-    --brand-action: #5cbc90;
-    --brand-action-hover: #74caa2;
-    --brand-action-fg: #06231a;
-    --positive-100: #0c2a1a;
-    --warning-100: #2e2208;
-    --concern-100: #2e1414;
-    --info-100: #10203f;
-    --positive-600: #4ade80;
-    --positive-700: #86efac;
-    --warning-600: #fbbf24;
-    --warning-700: #fcd34d;
-    --concern-600: #f87171;
-    --concern-700: #fca5a5;
-    --info-600: #60a5fa;
-    --info-700: #93c5fd;
-    --viz-series-1: #1fa273;
-    --viz-series-2: #7d70e8;
-    --viz-series-3: #dd6836;
-    --viz-series-4: #4a8fe0;
-    --viz-seq-1: #0d2a1e;
-    --viz-seq-2: #14442f;
-    --viz-seq-3: #1a6043;
-    --viz-seq-4: #237c56;
-    --viz-seq-5: #35a072;
-    --viz-seq-6: #6fc79b;
-    --viz-diverge-positive: #4ade80;
-    --viz-diverge-negative: #f87171;
-    --viz-diverge-neutral: #333c44;
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
-    --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.6);
-  }
-}
+   Applied only when the document element carries `data-theme="dark"`. It is
+   deliberately NOT wired to `prefers-color-scheme`: the product's default
+   experience is light regardless of the operating system, and a viewer who
+   wants dark chooses it. The choice is stored and re-applied before first
+   paint, so there is no flash of the wrong theme.
 
+   These are not inverted light values — surfaces, borders and status colours
+   were each re-picked against a dark ground for contrast and hierarchy.
+   --------------------------------------------------------------------------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --surface: #14181c;
@@ -237,14 +169,17 @@
   --ink-100: #1c2126;
   --ink-050: #171b1f;
   --ink-200: #262d34;
-  --brand-100: #10301f;
-  --brand-050: #0c2418;
-  --brand-200: #1d5638;
-  --brand-600: #3f9468;
-  --brand-700: #62b088;
-  --accent-500: #d9a95f;
-  --accent-400: #e5ab4a;
-  --accent-100: #33280f;
+  /* Brand lifts on a dark ground so it stays visible without glowing. */
+  --brand-050: #0b2119;
+  --brand-100: #102c21;
+  --brand-200: #1c4a37;
+  --brand-400: #4f9e79;
+  --brand-500: #3f8f6a;
+  --brand-600: #4f9e79;
+  --brand-700: #7cbd9d;
+  --accent-400: #dcb44e;
+  --accent-500: #d3ab45;
+  --accent-100: #2e2712;
   --brand-action: #5cbc90;
   --brand-action-hover: #74caa2;
   --brand-action-fg: #06231a;

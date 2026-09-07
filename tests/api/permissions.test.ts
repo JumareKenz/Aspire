@@ -9,10 +9,13 @@ const { listOrgUnits, getRootOrgUnit } = await import('@/data/repositories/orgUn
 const { answerQuestion } = await import('@/intelligence/answer');
 const { latestCompletePeriodId } = await import('@/data/sync/periods');
 const { can } = await import('@/auth/rbac');
+const { experienceFor } = await import('@/auth/experience');
 import type { User } from '@/data/repositories/users';
 
 let national: User;
 let scoped: User;
+let executive: User;
+let facilityId: string;
 let otherLgaId: string;
 let scopedLgaId: string;
 let rootId: string;
@@ -32,6 +35,8 @@ beforeAll(async () => {
     scope: [scopedLgaId],
     password: 'a-long-enough-password',
   });
+  executive = users.find((user) => user.role === 'EXECUTIVE')!;
+  facilityId = (await listOrgUnits('FACILITY'))[0].id;
 }, 120_000);
 
 afterAll(async () => {
@@ -114,5 +119,64 @@ describe('capabilities', () => {
       expect(can(role, 'intelligence.ask')).toBe(true);
       expect(can(role, 'reports.generate')).toBe(true);
     }
+  });
+});
+
+describe('depth is enforced in the data layer, not by hiding links', () => {
+  it('refuses a facility to an executive even inside their own geography', async () => {
+    // The executive has national scope, so this is refused on depth alone —
+    // which is the check a hidden link would not provide.
+    await expect(assertOrgUnitInScope(executive, facilityId)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('allows the same facility to an analyst', async () => {
+    await expect(assertOrgUnitInScope(national, facilityId)).resolves.toBeTruthy();
+  });
+
+  it('keeps facilities out of an executive’s selectable scope entirely', async () => {
+    const scope = await resolveScope(executive);
+    expect(scope.ids).not.toContain(facilityId);
+    expect((await resolveScope(national)).ids).toContain(facilityId);
+  });
+
+  it('still lets an executive open an area', async () => {
+    await expect(assertOrgUnitInScope(executive, scopedLgaId)).resolves.toBeTruthy();
+  });
+});
+
+describe('intelligence inherits role and scope before any query runs', () => {
+  it('does not return facility rows to an executive', async () => {
+    const answer = await answerQuestion('Which areas are performing below target?', executive, {
+      orgUnitId: rootId,
+      periodId: latestCompletePeriodId(),
+    });
+    const permitted = new Set((await resolveScope(executive)).ids);
+    for (const row of answer.result?.rows ?? []) {
+      if (row.refKind === 'ORG_UNIT' && row.refId) expect(permitted.has(row.refId)).toBe(true);
+    }
+  });
+
+  it('confines a scoped analyst to their own geography', async () => {
+    const answer = await answerQuestion('Rank every area by performance', scoped, {
+      orgUnitId: scopedLgaId,
+      periodId: latestCompletePeriodId(),
+    });
+    const permitted = new Set((await resolveScope(scoped)).ids);
+    for (const row of answer.result?.rows ?? []) {
+      if (row.refKind === 'ORG_UNIT' && row.refId) expect(permitted.has(row.refId)).toBe(true);
+    }
+    expect(permitted.has(otherLgaId)).toBe(false);
+  });
+});
+
+describe('report types are part of the experience', () => {
+  it('withholds operational reports from an executive', () => {
+    const exec = experienceFor(executive).reportTypes;
+    expect(exec).not.toContain('DATA_QUALITY');
+    expect(exec).not.toContain('AREA_PERFORMANCE');
+  });
+
+  it('gives an analyst the full set', () => {
+    expect(experienceFor(national).reportTypes).toContain('DATA_QUALITY');
   });
 });

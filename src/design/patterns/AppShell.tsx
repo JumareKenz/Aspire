@@ -6,6 +6,7 @@ import { useState, type ReactNode } from 'react';
 import { cn } from '../primitives/cn';
 import { Logo } from './Logo';
 import { DataModeBanner } from '../primitives/DataModeBanner';
+import { ThemeToggle } from './ThemeToggle';
 import type { Role } from '@/data/repositories/users';
 import { ROLE_LABELS } from '@/auth/rbac';
 
@@ -81,14 +82,9 @@ export function AppShell({
           <span className="hidden whitespace-nowrap sm:block">
             <span className="block text-[13px] leading-tight font-semibold tracking-[-0.011em]">
               ASPIRE-GAC
-              {/* The descriptor is the first thing to go once space is tight;
-                  the mark and the name identify the product on their own. */}
-              <span className="ml-1.5 hidden font-normal text-[var(--text-tertiary)] xl:inline">
-                SRHR Intelligence
-              </span>
             </span>
             <span className="hidden text-[10px] leading-tight text-[var(--text-tertiary)] lg:block">
-              HIVA by Hayok Medicare
+              SRHR Intelligence &amp; Performance
             </span>
           </span>
         </Link>
@@ -103,6 +99,7 @@ export function AppShell({
               </p>
             </div>
           </div>
+          <ThemeToggle className="shrink-0" />
           <form action="/api/auth/sign-out" method="post" className="shrink-0">
             <button
               type="submit"

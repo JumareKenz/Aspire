@@ -17,6 +17,8 @@ import { ButtonLink } from '@/design/primitives/Button';
 import { InsightList } from './InsightList';
 import { RecommendationList } from '@/design/patterns/RecommendationList';
 import { can } from '@/auth/rbac';
+import { experienceFor } from '@/auth/experience';
+import { ExecutiveBriefing } from './ExecutiveBriefing';
 
 export const metadata: Metadata = { title: 'Overview' };
 export const dynamic = 'force-dynamic';
@@ -27,6 +29,7 @@ export default async function OverviewPage({
   searchParams: Promise<SearchParams>;
 }) {
   const context = await resolvePageContext(await searchParams);
+  const experience = experienceFor(context.user);
   const overview = await getOverview(context.orgUnit.id, context.periodId);
 
   if (!overview || overview.scorecard.overallScore === null) {
@@ -61,9 +64,40 @@ export default async function OverviewPage({
     );
   }
 
+  // Two compositions, not one page with pieces hidden. The executive briefing
+  // answers four questions and stops; the analyst overview opens into the
+  // evidence and the follow-up workflow behind them.
+  if (experience.detail === 'SUMMARY') {
+    return (
+      <>
+        <PageHeader
+          title="Overview"
+          description={`SRHR performance for ${overview.scorecard.orgUnitName}, ${overview.scorecard.periodLabel}.`}
+          meta={
+            <ProvisionalBadge
+              version={overview.scorecard.methodologyVersion}
+              status={overview.scorecard.methodologyStatus}
+            />
+          }
+          controls={
+            <ScopeBar
+              orgUnits={context.orgUnitOptions}
+              periods={context.periodOptions}
+              orgUnitId={context.orgUnit.id}
+              periodId={context.periodId}
+            />
+          }
+        />
+        <ExecutiveBriefing data={overview} attentionLimit={experience.attentionLimit} />
+      </>
+    );
+  }
+
   const { scorecard, previous, ranking, insights, recommendations, contributions, reporting, quality, history } =
     overview;
-  const attention = insights.filter((insight) => insight.severity !== 'LOW').slice(0, 5);
+  const attention = insights
+    .filter((insight) => insight.severity !== 'LOW')
+    .slice(0, experience.attentionLimit);
   const needsAttention = ranking.filter((unit) => unit.status === 'NEEDS_ATTENTION').length;
   const watch = ranking.filter((unit) => unit.status === 'WATCH').length;
 

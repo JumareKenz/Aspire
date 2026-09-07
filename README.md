@@ -4,7 +4,7 @@ Turns government DHIS2 SRHR reporting into performance intelligence: scorecards,
 data-quality intelligence, forecasting, evidence-grounded recommendations and
 automated reports.
 
-Built on **HIVA by Hayok Medicare**, targeting **Gombe State**.
+Targeting **Gombe State**.
 
 ## Getting started
 
@@ -33,11 +33,11 @@ on first request with a clearly-labelled demo dataset.
 
 Accounts created on first seed:
 
-| Account | Tier |
-|---|---|
-| `executive@aspire.local` | Executive / governance |
-| `analyst@aspire.local` | Programme, LGA, M&E and technical |
-| `admin@aspire.local` | System administrator |
+| Account | Tier | Experience |
+|---|---|---|
+| `executive@aspire.local` | Executive / governance | Briefing: position, attention, change, recommendations. Area level. |
+| `analyst@aspire.local` | Programme, LGA, M&E and technical | Full workspace: facility drill-down, indicator detail, data quality, actions. |
+| `admin@aspire.local` | System administrator | The above, plus users, indicators, sync and audit. |
 
 The password is whatever `ASPIRE_SEED_PASSWORD` was set to when the database was
 first seeded.
@@ -63,6 +63,7 @@ each indicator to its DHIS2 identifier in **Admin → Indicators**, then run
 | [`docs/ENGINEERING_GUIDE.md`](docs/ENGINEERING_GUIDE.md) | Conventions and the rules that must hold |
 | [`docs/ASPIRE_REPOSITORY_ASSESSMENT.md`](docs/ASPIRE_REPOSITORY_ASSESSMENT.md) | The starting point and why the architecture is what it is |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, stack decisions, performance, failure behaviour |
+| [`docs/ROLE_ACCESS_MATRIX.md`](docs/ROLE_ACCESS_MATRIX.md) | The three tiers, what each may reach, and where it is enforced |
 | [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) | Users, workspaces, quality bar |
 | [`docs/SCORECARD_METHODOLOGY.md`](docs/SCORECARD_METHODOLOGY.md) | The configurable scoring engine and how to publish the official methodology |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Canonical types, schema, confidence, the demo dataset |

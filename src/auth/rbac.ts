@@ -3,18 +3,35 @@ import type { Role } from '@/data/repositories/users';
 /**
  * Capabilities, not screens.
  *
- * LGA, M&E, programme and technical users are one tier (`ANALYST`) sharing one
- * workspace. What differs between them is geographic scope, not the product
- * they see — so there is one set of pages and one set of permissions, and no
- * role-specific duplication.
+ * Programme, LGA, M&E and technical users remain one tier (`ANALYST`) sharing
+ * one workspace, separated from each other only by geographic scope. What
+ * separates them from `EXECUTIVE` is not scope but *depth*: an executive gets a
+ * decision-support summary, an analyst gets the investigative workspace.
+ *
+ * Depth is expressed here as capabilities rather than as `if (role === …)` in
+ * components, so that a page asks "may this user drill into a facility?" and
+ * never "is this user an executive?". Adding a fourth role later means adding a
+ * row to `ROLE_PERMISSIONS`, not auditing every component.
  */
 export const PERMISSIONS = [
   'intelligence.view',
   'intelligence.ask',
+  /** See the evidence tables and verification behind an answer. */
+  'intelligence.evidence',
+  /** Drill below the LGA into individual reporting facilities. */
+  'performance.facility',
+  /** Open an indicator's full history, contributors and outlook. */
+  'performance.indicator',
+  /** Compare periods and geographies side by side. */
+  'performance.compare',
+  /** The full data-quality workspace rather than a confidence summary. */
+  'quality.detail',
   'quality.triage',
   'actions.view',
   'actions.manage',
   'reports.generate',
+  /** Operational reports beyond the executive brief. */
+  'reports.detailed',
   'admin.view',
   'admin.manage',
   'admin.sync',
@@ -22,14 +39,23 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  EXECUTIVE: ['intelligence.view', 'intelligence.ask', 'actions.view', 'reports.generate'],
+  // Decision support: how are we doing, what needs attention, what changed.
+  // Deliberately excludes facility drill-down, the data-quality workspace and
+  // the follow-up board — those are operational, not governance, concerns.
+  EXECUTIVE: ['intelligence.view', 'intelligence.ask', 'reports.generate'],
   ANALYST: [
     'intelligence.view',
     'intelligence.ask',
+    'intelligence.evidence',
+    'performance.facility',
+    'performance.indicator',
+    'performance.compare',
+    'quality.detail',
     'quality.triage',
     'actions.view',
     'actions.manage',
     'reports.generate',
+    'reports.detailed',
   ],
   ADMIN: [...PERMISSIONS],
 };
@@ -61,7 +87,9 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  EXECUTIVE: 'Performance overview, intelligence and reports across the full scope.',
-  ANALYST: 'Full analytical workspace, data-quality triage and follow-up actions.',
+  EXECUTIVE:
+    'Decision-support summary: overall performance, what needs attention, what changed, and executive reporting.',
+  ANALYST:
+    'The full investigative workspace: facility drill-down, indicator detail, data-quality triage and follow-up actions.',
   ADMIN: 'Everything, plus users, indicator configuration, synchronisation and audit.',
 };

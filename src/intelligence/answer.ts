@@ -1,6 +1,7 @@
 import { listDomains, listIndicators } from '@/data/repositories/registry';
 import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { isInScope } from '@/auth/rbac';
+import { experienceFor, permittedLevels } from '@/auth/experience';
 import type { User } from '@/data/repositories/users';
 import { analysisPeriods } from '@/data/sync/periods';
 import { recordAudit } from '@/data/repositories/audit';
@@ -51,7 +52,16 @@ export async function answerQuestion(
     listIndicators(),
     listDomains(),
   ]);
-  const orgUnits = allUnits.filter((unit) => isInScope(user.scope, unit.path));
+
+  // Authorisation happens here — before any query is planned or executed, and
+  // long before an answer exists. The planner is shown only the geographies
+  // this user may read, filtered by both scope and depth, so it cannot name a
+  // place it should not and there is nothing to redact afterwards.
+  const experience = experienceFor(user);
+  const levels = permittedLevels(experience);
+  const orgUnits = allUnits.filter(
+    (unit) => isInScope(user.scope, unit.path) && levels.includes(unit.level),
+  );
   const context: IntentContext = {
     orgUnits,
     indicators,
@@ -63,6 +73,8 @@ export async function answerQuestion(
 
   const { intent, plannedBy } = await planQuery(trimmed, context);
 
+  // The planner's output is re-checked against the same permitted set. A model
+  // is not trusted to have respected the list it was given.
   const permitted = orgUnits.some((unit) => unit.id === intent.query.orgUnitId);
   if (!permitted) {
     intent.query.orgUnitId = defaults.orgUnitId;
@@ -73,7 +85,7 @@ export async function answerQuestion(
     );
   }
 
-  const result = await executeQuery(intent.query);
+  const result = await executeQuery(intent.query, { permittedOrgUnitIds: new Set(orgUnits.map((u) => u.id)) });
   const issues = validateResult(result);
 
   await recordAudit({
@@ -142,6 +154,19 @@ export async function answerQuestion(
     declined: false,
   };
 }
+
+/**
+ * Prompts for the executive tier: position, movement and risk, not causation
+ * mechanics or reporting hygiene.
+ */
+export const EXECUTIVE_QUESTIONS = [
+  'How are we performing this quarter?',
+  'What changed this quarter?',
+  'Which areas need attention?',
+  'Where are the biggest SRHR risks?',
+  'Which areas improved most?',
+  'Generate an executive summary.',
+];
 
 export const SUGGESTED_QUESTIONS = [
   'Which areas are performing below target?',

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolvePageContext, type SearchParams } from '@/services/context';
-import { SUGGESTED_QUESTIONS } from '@/intelligence/answer';
+import { EXECUTIVE_QUESTIONS, SUGGESTED_QUESTIONS } from '@/intelligence/answer';
+import { experienceFor } from '@/auth/experience';
 import { modelStatus } from '@/intelligence/model';
 import { listFindings } from '@/data/repositories/findings';
 import { listChildren } from '@/data/repositories/orgUnits';
@@ -21,7 +22,12 @@ export default async function IntelligencePage({
   searchParams: Promise<SearchParams>;
 }) {
   const context = await resolvePageContext(await searchParams);
+  const experience = experienceFor(context.user);
   const model = modelStatus();
+  // Executives ask about position and change; analysts ask about cause and
+  // reporting quality. Offering the wrong prompts teaches the wrong workflow.
+  const suggestions =
+    experience.detail === 'SUMMARY' ? EXECUTIVE_QUESTIONS : SUGGESTED_QUESTIONS;
 
   const children = await listChildren(context.orgUnit.id);
   const scope = [context.orgUnit.id, ...children.map((child) => child.id)];
@@ -47,7 +53,8 @@ export default async function IntelligencePage({
         <AskPanel
           orgUnitId={context.orgUnit.id}
           periodId={context.periodId}
-          suggestions={SUGGESTED_QUESTIONS}
+          suggestions={suggestions}
+          showEvidence={experience.showEvidence}
         />
 
         <aside className="space-y-4">
@@ -103,12 +110,19 @@ export default async function IntelligencePage({
                   <dd className="numeric font-semibold">{quality.byDimension.COMPLETENESS}</dd>
                 </div>
               </dl>
-              <Link
-                href={`/intelligence/data-quality?orgUnit=${context.orgUnit.id}&period=${context.periodId}`}
-                className="mt-3 inline-block text-[12px] text-[var(--brand-600)] hover:underline"
-              >
-                Open data quality →
-              </Link>
+              {experience.detail === 'FULL' ? (
+                <Link
+                  href={`/intelligence/data-quality?orgUnit=${context.orgUnit.id}&period=${context.periodId}`}
+                  className="mt-3 inline-block text-[12px] text-[var(--brand-600)] hover:underline"
+                >
+                  Open data quality →
+                </Link>
+              ) : (
+                <p className="mt-3 text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                  Where confidence is low, treat the reported score as provisional until reporting
+                  improves.
+                </p>
+              )}
             </CardBody>
           </Card>
 

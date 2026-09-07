@@ -30,10 +30,17 @@ export function AskPanel({
   orgUnitId,
   periodId,
   suggestions,
+  showEvidence = true,
 }: {
   orgUnitId: string;
   periodId: string;
   suggestions: string[];
+  /**
+   * Whether to offer the row-level evidence table and verification trail.
+   * Executives get the answer and its basis; the underlying rows are an
+   * investigative tool that belongs with the workspace tier.
+   */
+  showEvidence?: boolean;
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [question, setQuestion] = useState('');
@@ -175,7 +182,7 @@ export function AskPanel({
                   </div>
                 ))}
 
-                {entry.answer.result && entry.answer.result.rows.length > 0 ? (
+                {showEvidence && entry.answer.result && entry.answer.result.rows.length > 0 ? (
                   <details className="rounded-[var(--radius-md)] border bg-[var(--surface-sunken)] px-3 py-2">
                     <summary className="cursor-pointer text-[12px] font-medium text-[var(--text-secondary)]">
                       Evidence — {entry.answer.result.rows.length} rows
@@ -224,7 +231,7 @@ export function AskPanel({
                   </details>
                 ) : null}
 
-                {entry.answer.result && entry.answer.result.findings.length > 0 ? (
+                {showEvidence && entry.answer.result && entry.answer.result.findings.length > 0 ? (
                   <details className="rounded-[var(--radius-md)] border bg-[var(--surface-sunken)] px-3 py-2">
                     <summary className="cursor-pointer text-[12px] font-medium text-[var(--text-secondary)]">
                       How each statement was verified

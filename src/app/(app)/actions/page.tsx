@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requireUser, resolveScope } from '@/auth/server';
+import { requireRoute, resolveScope } from '@/auth/server';
 import { can } from '@/auth/rbac';
 import { getActionViews } from '@/services/actions';
 import { listUsers } from '@/data/repositories/users';
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Actions' };
 export const dynamic = 'force-dynamic';
 
 export default async function ActionsPage() {
-  const user = await requireUser();
+  const { user } = await requireRoute('/actions');
   const scope = await resolveScope(user);
   const [actions, users] = await Promise.all([getActionViews(scope.ids), listUsers()]);
   const assignees = users

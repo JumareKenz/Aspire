@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { THEME_INIT_SCRIPT } from '@/design/patterns/ThemeToggle';
 
 export const metadata: Metadata = {
   title: {
@@ -7,7 +8,6 @@ export const metadata: Metadata = {
     template: '%s · ASPIRE-GAC',
   },
   applicationName: 'ASPIRE-GAC SRHR Intelligence',
-  authors: [{ name: 'Hayok Medicare' }],
   icons: { icon: '/icon.svg', apple: '/icon.svg' },
   description:
     'SRHR performance intelligence and decision support built on DHIS2 reporting: scorecards, data-quality intelligence, forecasting and evidence-grounded recommendations.',
@@ -16,15 +16,17 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f5f2ec' },
-    { media: '(prefers-color-scheme: dark)', color: '#0c0f12' },
-  ],
+  themeColor: '#f5f2ec',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en-GB">
+    // `suppressHydrationWarning` because the pre-paint script sets data-theme
+    // on the html element before React hydrates.
+    <html lang="en-GB" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

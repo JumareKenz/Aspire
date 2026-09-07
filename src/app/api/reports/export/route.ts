@@ -3,6 +3,7 @@ import { generateReport, REPORT_TYPES, type ReportType } from '@/services/report
 import { recordAudit } from '@/data/repositories/audit';
 import { latestCompletePeriodId } from '@/data/sync/periods';
 import { ApiError, query, withUser } from '@/lib/api';
+import { experienceFor } from '@/auth/experience';
 
 /** RFC 4180 quoting, so commas and quotes inside area names survive. */
 function csvCell(value: string | number | null): string {
@@ -26,6 +27,11 @@ export const GET = withUser(async (user, request) => {
 
   if (!type || !REPORT_TYPES.includes(type)) throw new ApiError('Unknown report type.', 400);
   if (!orgUnitId) throw new ApiError('orgUnit is required.', 400);
+  // Report type is part of the experience, not a UI filter: an executive
+  // cannot export the operational reports by guessing the query parameter.
+  if (!experienceFor(user).reportTypes.includes(type)) {
+    throw new ApiError('That report is not part of your access.', 403);
+  }
   await assertOrgUnitInScope(user, orgUnitId);
 
   const report = await generateReport(type, orgUnitId, periodId);

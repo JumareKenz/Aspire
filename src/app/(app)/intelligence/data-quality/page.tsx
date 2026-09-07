@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resolvePageContext, type SearchParams } from '@/services/context';
 import { can } from '@/auth/rbac';
+import { requirePermission } from '@/auth/server';
 import { listFindings } from '@/data/repositories/findings';
 import { listChildren, listDescendants } from '@/data/repositories/orgUnits';
 import { rollup } from '@/core/quality/types';
@@ -30,6 +31,9 @@ export default async function DataQualityPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  // The data-quality workspace is investigative detail. Executives get the
+  // confidence summary on Overview and Intelligence instead.
+  await requirePermission('quality.detail');
   const context = await resolvePageContext(await searchParams);
   const [children, facilities] = await Promise.all([
     listChildren(context.orgUnit.id),

@@ -35,18 +35,14 @@ production build clean
 
 ## Inputs supplied later, and what they changed
 
-Three of the four originally-missing inputs were supplied later, from the HIVA
-platform repository, and applied.
+Two of the four originally-missing inputs were supplied later and applied.
 
-**HIVA brand assets — applied.** `HIVA_Logo.png` and
-`BRANDING_UPDATE_COMPLETE.md` gave the official Hayok Medicare identity. The
-mark is redrawn as SVG (`src/design/patterns/Logo.tsx`) with the ring, gold
-orbital arcs and gold-node "H" of the original, plus a favicon. The palette is
-the documented one — forest green `#1A5C38`, warm gold `#C8A46E`, off-white
-`#F5F2EC`, charcoal `#2C2C2C`, muted `#6B6B6B`, light sage `#D4E4DA` — extended
-into a ramp using the logo artwork's own measured values (`#014C37`, `#DF9F3E`).
-Brand colour is used for identity, primary actions and active navigation, not
-for data.
+**Branding — ASPIRE-GAC.** The product carries its own identity: a geometric
+mark (a rising performance series inside an institutional frame, drawn as SVG
+so it holds at favicon size), a deep institutional green with a restrained gold
+accent, and a matching app icon. Brand colour is confined to the `--brand-*`
+and `--accent-*` tokens and is used for identity and primary actions only —
+never for data, which keeps its separately validated palette.
 
 **DHIS2 instance — configured, still unverified.** `https://dhis2.hiva.chat`,
 Gombe State, 8 indicators / 187 data elements / 1,264 org units. Five indicators

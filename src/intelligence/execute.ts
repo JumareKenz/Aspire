@@ -16,7 +16,31 @@ import type { AnalyticalQuery, AnalyticalResult, Finding, ResultRow } from './ty
  * "the AI said 62" and "the scorecard says 62" the same statement rather than
  * two independent claims.
  */
-export async function executeQuery(query: AnalyticalQuery): Promise<AnalyticalResult> {
+export interface ExecutionScope {
+  /**
+   * Org units this user may read. Results are filtered against it after
+   * execution as a second line of defence: the query is already scoped, and
+   * this ensures no executor branch can widen it by accident.
+   */
+  permittedOrgUnitIds?: Set<string>;
+}
+
+export async function executeQuery(
+  query: AnalyticalQuery,
+  scope: ExecutionScope = {},
+): Promise<AnalyticalResult> {
+  const result = await runQuery(query);
+  const permitted = scope.permittedOrgUnitIds;
+  if (!permitted) return result;
+
+  const rows = result.rows.filter(
+    (row) => row.refKind !== 'ORG_UNIT' || row.refId === null || permitted.has(row.refId),
+  );
+  if (rows.length === result.rows.length) return result;
+  return { ...result, rows };
+}
+
+async function runQuery(query: AnalyticalQuery): Promise<AnalyticalResult> {
   switch (query.kind) {
     case 'RANK_UNITS':
     case 'BELOW_TARGET':

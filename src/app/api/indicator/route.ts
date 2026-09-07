@@ -22,4 +22,4 @@ export const GET = withUser(async (user, request) => {
   const detail = await getIndicatorDetail(orgUnitId, indicatorId, periodId);
   if (!detail) throw new ApiError('That indicator is not configured, or the geography is unknown.', 404);
   return ok(detail);
-}, 'intelligence.view');
+}, 'performance.indicator');

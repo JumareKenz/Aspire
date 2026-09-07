@@ -16,6 +16,8 @@ import { EmptyState } from '@/design/primitives/States';
 import { ScorecardTable } from '@/design/patterns/ScorecardTable';
 import { AreaTable, type AreaRow } from '@/design/patterns/AreaTable';
 import { LineChart } from '@/design/charts/LineChart';
+import { experienceFor } from '@/auth/experience';
+import { can } from '@/auth/rbac';
 
 export const metadata: Metadata = { title: 'Performance' };
 export const dynamic = 'force-dynamic';
@@ -58,6 +60,7 @@ export default async function PerformancePage({
 }) {
   const params = await searchParams;
   const context = await resolvePageContext(params);
+  const experience = experienceFor(context.user);
   const scorecard = await getScorecard(context.orgUnit.id, context.periodId);
   const expandDomain = typeof params.domain === 'string' ? [params.domain] : undefined;
 
@@ -206,28 +209,48 @@ export default async function PerformancePage({
       </section>
 
       <section className="mb-8">
-        <SectionHeading description="Select a domain to see the indicators inside it, then an indicator to see its history, contributors and outlook.">
+        <SectionHeading
+          description={
+            can(context.user.role, 'performance.indicator')
+              ? 'Select a domain to see the indicators inside it, then an indicator to see its history, contributors and outlook.'
+              : 'Domain scores against the on-track threshold, with movement over the reporting window.'
+          }
+        >
           Scorecard
         </SectionHeading>
         <Card className="px-2 py-1">
-          <ScorecardTable scorecard={scorecard} defaultExpanded={expandDomain} />
+          <ScorecardTable
+            scorecard={scorecard}
+            defaultExpanded={expandDomain}
+            canOpenIndicator={can(context.user.role, 'performance.indicator')}
+          />
         </Card>
       </section>
 
       <section>
         <SectionHeading
           description={
-            rows.length > 0
-              ? 'Ranked by overall score. Select an area to drill into it.'
-              : undefined
+            rows.length === 0
+              ? undefined
+              : experience.deepestLevel === 'FACILITY'
+                ? 'Ranked by overall score. Select an area to drill into it, down to individual facilities.'
+                : 'Ranked by overall score. Select an area to see its scorecard.'
           }
         >
           {rows.length > 0 ? 'Areas within this geography' : 'Breakdown'}
         </SectionHeading>
         {rows.length === 0 ? (
           <EmptyState
-            title="This is a reporting facility."
-            description="Facilities are the lowest level of the hierarchy, so there is nothing further to break down. Use the scorecard above to see this facility's indicator detail."
+            title={
+              experience.deepestLevel === 'FACILITY'
+                ? 'This is a reporting facility.'
+                : 'This is the deepest level in your access.'
+            }
+            description={
+              experience.deepestLevel === 'FACILITY'
+                ? "Facilities are the lowest level of the hierarchy, so there is nothing further to break down. Use the scorecard above to see this facility's indicator detail."
+                : 'Facility-level records are operational detail outside executive access. Ask an administrator if you need them.'
+            }
           />
         ) : (
           <Card className="px-2 py-1">
