@@ -2,7 +2,7 @@ import type { Observation, OrgUnit } from '@/core/model/types';
 import type { IndicatorDefinition } from '@/core/registry/types';
 import { runQualityScan, type DetectorContext, type SeriesInput } from '@/core/quality/detectors';
 import { listIndicators, seedRegistryIfEmpty } from '../repositories/registry';
-import { upsertOrgUnits } from '../repositories/orgUnits';
+import { replaceGeography, upsertOrgUnits } from '../repositories/orgUnits';
 import {
   upsertObservations,
   upsertPeriods,
@@ -11,7 +11,7 @@ import {
 } from '../repositories/observations';
 import { replaceFindings } from '../repositories/findings';
 import { finishSyncRun, startSyncRun } from '../repositories/syncRuns';
-import { setDataMode, setLastSyncAt } from '../repositories/settings';
+import { getDataMode, setDataMode, setLastSyncAt } from '../repositories/settings';
 import { getSourceAdapter } from '../sources';
 import { analysisPeriods } from './periods';
 
@@ -46,6 +46,15 @@ export async function runSync(): Promise<SyncResult> {
     const observations = await adapter.fetchObservations(request);
     const reporting = await adapter.fetchReporting({ ...request, datasets });
 
+    // Switching source replaces the geography outright; see replaceGeography.
+    let note = '';
+    if ((await getDataMode()) !== adapter.mode) {
+      const { unmatchedUsers } = await replaceGeography(orgUnits);
+      if (unmatchedUsers.length > 0) {
+        note = ` Scopes not found in the new hierarchy for: ${unmatchedUsers.join(', ')}. Review them in Admin → Users.`;
+      }
+    }
+
     await upsertPeriods(periods);
     await upsertOrgUnits(orgUnits);
     await upsertObservations(observations);
@@ -69,7 +78,7 @@ export async function runSync(): Promise<SyncResult> {
       orgUnits: orgUnits.length,
       observations: observations.length,
       findings: findings.length,
-      message: `Synchronised ${periods.length} periods from ${adapter.label}.`,
+      message: `Synchronised ${periods.length} periods from ${adapter.label}.${note}`,
     });
 
     return {
@@ -78,7 +87,7 @@ export async function runSync(): Promise<SyncResult> {
       orgUnits: orgUnits.length,
       observations: observations.length,
       findings: findings.length,
-      message: `Synchronised ${observations.length.toLocaleString('en-GB')} values across ${orgUnits.length} organisation units.`,
+      message: `Synchronised ${observations.length.toLocaleString('en-GB')} values across ${orgUnits.length} organisation units.${note}`,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Synchronisation failed.';
@@ -108,8 +117,12 @@ function scanQuality(
   // periods. Raising one finding per facility per period would produce hundreds
   // of rows that say the same thing; the LGA is where reporting is managed, and
   // facility detail remains available on drill-down.
+  // Found through the path, not the parent: a facility's parent is its ward.
+  const lgaIds = new Set(orgUnits.filter((unit) => unit.level === 'LGA').map((unit) => unit.id));
   const facilityToLga = new Map(
-    orgUnits.filter((unit) => unit.level === 'FACILITY').map((unit) => [unit.id, unit.parentId ?? unit.id]),
+    orgUnits
+      .filter((unit) => unit.level === 'FACILITY')
+      .map((unit) => [unit.id, unit.path.find((id) => lgaIds.has(id)) ?? unit.parentId ?? unit.id]),
   );
   const recentPeriodIds = new Set(periods.slice(-COMPLETENESS_SCAN_PERIODS).map((period) => period.id));
   const aggregatedReporting = reporting

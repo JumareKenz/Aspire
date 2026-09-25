@@ -1,4 +1,4 @@
-import type { OrgLevel } from '@/core/model/types';
+import { ORG_LEVELS, type OrgLevel } from '@/core/model/types';
 import type { Role, User } from '@/data/repositories/users';
 import type { ReportType } from '@/services/reports';
 import { can, type Permission } from './rbac';
@@ -178,8 +178,7 @@ export function canReach(experience: Experience, pathname: string): boolean {
 
 /** Org levels this user may open, deepest permitted last. */
 export function permittedLevels(experience: Experience): OrgLevel[] {
-  const order: OrgLevel[] = ['COUNTRY', 'STATE', 'LGA', 'FACILITY'];
-  return order.slice(0, order.indexOf(experience.deepestLevel) + 1);
+  return ORG_LEVELS.slice(0, ORG_LEVELS.indexOf(experience.deepestLevel) + 1);
 }
 
 /** Convenience for pages that need both the capability and the depth. */

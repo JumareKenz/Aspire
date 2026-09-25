@@ -1,10 +1,11 @@
-import type {
-  Dataset,
-  Observation,
-  OrgLevel,
-  OrgUnit,
-  Period,
-  ReportingRecord,
+import {
+  ORG_LEVELS,
+  type Dataset,
+  type Observation,
+  type OrgLevel,
+  type OrgUnit,
+  type Period,
+  type ReportingRecord,
 } from '@/core/model/types';
 import type { ConnectionResult, FetchRequest, SourceAdapter } from '../port';
 import { Dhis2Client, Dhis2Error, type Dhis2Config } from './client';
@@ -12,29 +13,25 @@ import { env } from '@/lib/env';
 
 /**
  * DHIS2 numeric levels do not have a fixed meaning — they depend on how the
- * instance was built. A national deployment usually roots at the country; a
- * state deployment roots at the state, so its level 1 *is* the state.
- *
- * The DHIS2 instance currently configured is a state-rooted deployment
- * organised State → LGA → Ward → Community → Facility, so that is the default.
- * ASPIRE-GAC covers Bauchi and Sokoto, which in a state-rooted instance means
- * one connection per state; a single instance holding both would be rooted a
- * level higher and needs the override below. See docs/SOW_GAP_ANALYSIS.md.
+ * instance was built. The configured instance is the national one, organised
+ * Federal → State → LGA → Ward → Facility, so that is the default.
  * `DHIS2_LEVEL_MAP` overrides it for any other shape, e.g.
- * `DHIS2_LEVEL_MAP=1:COUNTRY,2:STATE,3:LGA,4:FACILITY` for a national instance.
+ * `DHIS2_LEVEL_MAP=1:STATE,2:LGA,3:WARD,5:FACILITY` for a state-rooted instance.
+ *
+ * A DHIS2 level left out of the map is skipped: its units are not imported and
+ * the units beneath them are attached to their nearest mapped ancestor. That is
+ * how an extra tier, such as a community level between ward and facility, is
+ * collapsed without filing it as something it is not.
  *
  * Getting this wrong is not a cosmetic error: it would file every LGA as a
  * state and every ward as a facility, and every aggregate above them would be
  * computed over the wrong set of units.
  */
 const DEFAULT_LEVEL_MAP: Record<number, OrgLevel> = {
-  1: 'STATE',
-  2: 'LGA',
-  // Wards and communities sit between LGA and facility in this hierarchy.
-  // The canonical model has no tier for them, so they are folded into the
-  // reporting level below the LGA rather than being silently dropped.
-  3: 'FACILITY',
-  4: 'FACILITY',
+  1: 'COUNTRY',
+  2: 'STATE',
+  3: 'LGA',
+  4: 'WARD',
   5: 'FACILITY',
 };
 
@@ -42,7 +39,7 @@ function readLevelMap(): Record<number, OrgLevel> {
   const configured = env('DHIS2_LEVEL_MAP');
   if (!configured) return DEFAULT_LEVEL_MAP;
 
-  const valid = new Set<OrgLevel>(['COUNTRY', 'STATE', 'LGA', 'FACILITY']);
+  const valid = new Set<OrgLevel>(ORG_LEVELS);
   const map: Record<number, OrgLevel> = {};
   for (const pair of configured.split(',')) {
     const [rawLevel, rawName] = pair.split(':').map((part) => part.trim());
@@ -50,7 +47,7 @@ function readLevelMap(): Record<number, OrgLevel> {
     const name = rawName?.toUpperCase() as OrgLevel | undefined;
     if (!Number.isInteger(level) || level < 1 || !name || !valid.has(name)) {
       throw new Error(
-        `DHIS2_LEVEL_MAP is malformed near "${pair}". Expected entries like "1:STATE,2:LGA,3:FACILITY".`,
+        `DHIS2_LEVEL_MAP is malformed near "${pair}". Expected entries like "1:COUNTRY,2:STATE,3:LGA,4:WARD,5:FACILITY".`,
       );
     }
     map[level] = name;
@@ -59,8 +56,41 @@ function readLevelMap(): Record<number, OrgLevel> {
   return map;
 }
 
-function periodTypeToDhis2(period: Period): string {
-  return period.id;
+/**
+ * The national instance prefixes every unit with its state's two-letter code
+ * ("ba Bauchi State", "so Kebbe Local Government Area"). The prefix is a DHIS2
+ * sorting convention, not part of the name, and it would otherwise appear on
+ * every screen and defeat matching a question like "how is Bauchi doing?".
+ */
+function cleanName(name: string): string {
+  return name.replace(/^[a-z]{2}\s+(?=[A-Z0-9])/, '').trim();
+}
+
+/** Analytics requests are split by period so no single query outlives the timeout. */
+const PERIODS_PER_REQUEST = 4;
+
+/** Start date of a DHIS2 period id, for the period types the platform consumes. */
+function periodStart(id: string): string | null {
+  const monthly = /^(\d{4})(\d{2})$/.exec(id);
+  if (monthly) return `${monthly[1]}-${monthly[2]}-01`;
+  const quarterly = /^(\d{4})Q([1-4])$/.exec(id);
+  if (quarterly) {
+    const month = (Number(quarterly[2]) - 1) * 3 + 1;
+    return `${quarterly[1]}-${String(month).padStart(2, '0')}-01`;
+  }
+  const yearly = /^(\d{4})$/.exec(id);
+  if (yearly) return `${yearly[1]}-01-01`;
+  return null;
+}
+
+/** How many of a data set's own periods make up one analysis period. */
+function submissionsPerPeriod(dataset: Dataset, period: Period): number {
+  if (dataset.periodType === 'MONTHLY') {
+    if (period.type === 'QUARTERLY') return 3;
+    if (period.type === 'YEARLY') return 12;
+  }
+  if (dataset.periodType === 'QUARTERLY' && period.type === 'YEARLY') return 4;
+  return 1;
 }
 
 /**
@@ -80,7 +110,52 @@ function parseCell(value: string | undefined): number | null {
 }
 
 /**
+ * Combines the values of several units into their parent's value.
+ *
+ * Used for units above the service user's data-view roots — the federal tier,
+ * whose own analytics DHIS2 will not return to a user scoped to two states.
+ * Ratios are recombined from their numerators and denominators, never averaged,
+ * so the larger state weighs more, exactly as DHIS2 would aggregate it. Values
+ * with no numerator or denominator are counts and are summed. Anything else is
+ * left absent rather than approximated.
+ */
+function combine(parts: Observation[]): Observation | null {
+  const first = parts[0];
+  if (!first) return null;
+  const withRatio = parts.every((part) => part.numerator !== null && part.denominator !== null);
+  if (withRatio) {
+    const numerator = parts.reduce((sum, part) => sum + (part.numerator ?? 0), 0);
+    const denominator = parts.reduce((sum, part) => sum + (part.denominator ?? 0), 0);
+    if (denominator === 0) return null;
+    // The indicator type's factor (100 for a percentage, 1000 for a rate per
+    // thousand) is recovered from any part where it is observable.
+    const sample = parts.find((part) => part.numerator !== 0 && part.denominator !== 0);
+    const factor = sample ? (sample.value * sample.denominator!) / sample.numerator! : null;
+    if (factor === null && numerator !== 0) return null;
+    return {
+      ...first,
+      value: numerator === 0 ? 0 : (factor! * numerator) / denominator,
+      numerator,
+      denominator,
+    };
+  }
+  const isCount = parts.every((part) => part.numerator === null && part.denominator === null);
+  if (!isCount) return null;
+  return {
+    ...first,
+    value: parts.reduce((sum, part) => sum + part.value, 0),
+    numerator: null,
+    denominator: null,
+  };
+}
+
+/**
  * Maps the DHIS2 Web API onto the canonical model.
+ *
+ * Everything is scoped to the service user's data-view org units (or
+ * `DHIS2_ROOT_ORG_UNITS`), plus the mapped ancestors above them. On the
+ * national instance that is Bauchi and Sokoto beneath the federal tier: a few
+ * thousand units rather than the sixty thousand the instance holds.
  *
  * Indicators are only queried when they carry a `source.dx` mapping. An
  * unmapped indicator is skipped and reported, rather than silently returning
@@ -91,6 +166,7 @@ export class Dhis2Adapter implements SourceAdapter {
   readonly mode = 'DHIS2' as const;
   readonly label: string;
   private readonly client: Dhis2Client;
+  private roots: string[] | null = null;
 
   constructor(config: Dhis2Config) {
     this.client = new Dhis2Client(config);
@@ -109,32 +185,76 @@ export class Dhis2Adapter implements SourceAdapter {
     }
   }
 
+  /** The org units whose subtrees the platform imports and queries. */
+  private async scopeRoots(): Promise<string[]> {
+    if (this.roots) return this.roots;
+    const configured = env('DHIS2_ROOT_ORG_UNITS')
+      ?.split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (configured && configured.length > 0) {
+      this.roots = configured;
+      return configured;
+    }
+    const me = await this.client.me();
+    const units = me.dataViewOrganisationUnits?.length
+      ? me.dataViewOrganisationUnits
+      : (me.organisationUnits ?? []);
+    if (units.length === 0) {
+      throw new Dhis2Error(
+        'The DHIS2 user has no data view org units. Assign them in DHIS2, or set DHIS2_ROOT_ORG_UNITS.',
+        null,
+        '/me',
+      );
+    }
+    this.roots = units.map((unit) => unit.id);
+    return this.roots;
+  }
+
   async fetchOrgUnits(): Promise<OrgUnit[]> {
     const levelMap = readLevelMap();
-    const deepest = Math.max(...Object.keys(levelMap).map(Number));
-    const units = await this.client.organisationUnits();
-    return units
-      .filter((unit) => unit.level <= deepest)
-      .map((unit) => {
-        const path = unit.path.split('/').filter(Boolean);
-        const centroid =
-          unit.geometry?.type === 'Point' && Array.isArray(unit.geometry.coordinates)
-            ? {
-                lon: Number((unit.geometry.coordinates as number[])[0]),
-                lat: Number((unit.geometry.coordinates as number[])[1]),
-              }
-            : null;
-        return {
-          id: unit.id,
-          code: unit.code ?? null,
-          name: unit.displayName,
-          level: levelMap[unit.level] ?? 'FACILITY',
-          parentId: unit.parent?.id ?? null,
-          path,
-          centroid,
-          active: true,
-        } satisfies OrgUnit;
-      });
+    const roots = await this.scopeRoots();
+
+    const subtrees = await Promise.all(roots.map((root) => this.client.organisationUnits({ root })));
+    const units = new Map(subtrees.flat().map((unit) => [unit.id, unit]));
+
+    // Ancestors above the roots, so the hierarchy keeps its federal tier.
+    const ancestorIds = [
+      ...new Set(
+        roots.flatMap((root) => units.get(root)?.path.split('/').filter(Boolean).slice(0, -1) ?? []),
+      ),
+    ].filter((id) => !units.has(id));
+    if (ancestorIds.length > 0) {
+      for (const unit of await this.client.organisationUnits({ ids: ancestorIds })) {
+        units.set(unit.id, unit);
+      }
+    }
+
+    const kept = [...units.values()].filter((unit) => levelMap[unit.level] !== undefined);
+    const keptIds = new Set(kept.map((unit) => unit.id));
+
+    return kept.map((unit) => {
+      // Units at unmapped levels are dropped from the path, so a child's parent
+      // is its nearest ancestor that was imported.
+      const path = unit.path.split('/').filter((id) => keptIds.has(id));
+      const centroid =
+        unit.geometry?.type === 'Point' && Array.isArray(unit.geometry.coordinates)
+          ? {
+              lon: Number((unit.geometry.coordinates as number[])[0]),
+              lat: Number((unit.geometry.coordinates as number[])[1]),
+            }
+          : null;
+      return {
+        id: unit.id,
+        code: unit.code ?? null,
+        name: cleanName(unit.displayName),
+        level: levelMap[unit.level],
+        parentId: path.length > 1 ? path[path.length - 2] : null,
+        path,
+        centroid,
+        active: true,
+      };
+    });
   }
 
   async fetchDatasets(): Promise<Dataset[]> {
@@ -149,9 +269,12 @@ export class Dhis2Adapter implements SourceAdapter {
   }
 
   /**
-   * One analytics request per org level, rather than one per org unit. DHIS2
-   * performs the aggregation and returns a compact matrix; nothing raw is
-   * pulled into the application.
+   * One analytics request per org level (split by period), rather than one per
+   * org unit. DHIS2 performs the aggregation and returns a compact matrix;
+   * nothing raw is pulled into the application.
+   *
+   * Units above the scope roots are not queried — the service user cannot
+   * view them — and are computed from the roots with `combine` instead.
    */
   async fetchObservations(request: FetchRequest): Promise<Observation[]> {
     const mapped = request.indicators.filter((indicator) => indicator.source.dx);
@@ -164,102 +287,170 @@ export class Dhis2Adapter implements SourceAdapter {
     }
 
     const byDx = new Map(mapped.map((indicator) => [indicator.source.dx as string, indicator]));
-    const roots = request.orgUnits.filter((unit) => unit.parentId === null);
-    const rootIds = (roots.length > 0 ? roots : request.orgUnits).map((unit) => unit.id);
+    const roots = await this.scopeRoots();
+    const rootUnits = request.orgUnits.filter((unit) => roots.includes(unit.id));
+    const rootDepth = Math.min(...rootUnits.map((unit) => unit.path.length));
 
     // `LEVEL-n` in an analytics request means DHIS2's *own* level number, which
     // is not the canonical depth. Invert the configured map to get back to the
-    // numbers this instance actually uses, and query each one once.
+    // numbers this instance actually uses, and query each one at or below the
+    // roots once.
     const levelMap = readLevelMap();
+    const rootLevels = new Set(rootUnits.map((unit) => unit.level));
+    const rootDhis2Level = Math.min(
+      ...Object.entries(levelMap)
+        .filter(([, canonical]) => rootLevels.has(canonical))
+        .map(([dhis2Level]) => Number(dhis2Level)),
+    );
     const wanted = new Set(request.orgUnits.map((unit) => unit.level));
     const levels = [
       ...new Set(
         Object.entries(levelMap)
-          .filter(([, canonical]) => wanted.has(canonical))
+          .filter(([dhis2Level, canonical]) => wanted.has(canonical) && Number(dhis2Level) >= rootDhis2Level)
           .map(([dhis2Level]) => Number(dhis2Level)),
       ),
     ].sort((a, b) => a - b);
 
+    const periodChunks: Period[][] = [];
+    for (let i = 0; i < request.periods.length; i += PERIODS_PER_REQUEST) {
+      periodChunks.push(request.periods.slice(i, i + PERIODS_PER_REQUEST));
+    }
+
     const observations: Observation[] = [];
     for (const level of levels) {
-      const response = await this.client.analytics({
-        dx: [...byDx.keys()],
-        pe: request.periods.map(periodTypeToDhis2),
-        ou: rootIds,
-        level,
-        includeNumDen: true,
-      });
-
-      const columnIndex = new Map(response.headers.map((header, index) => [header.name, index]));
-      const dxIndex = columnIndex.get('dx');
-      const peIndex = columnIndex.get('pe');
-      const ouIndex = columnIndex.get('ou');
-      const valueIndex = columnIndex.get('value');
-      if (dxIndex === undefined || peIndex === undefined || ouIndex === undefined || valueIndex === undefined) {
-        continue;
-      }
-      const numeratorIndex = columnIndex.get('numerator');
-      const denominatorIndex = columnIndex.get('denominator');
-
-      for (const row of response.rows) {
-        const indicator = byDx.get(row[dxIndex]);
-        if (!indicator) continue;
-        const value = parseCell(row[valueIndex]);
-        if (value === null) continue;
-        observations.push({
-          indicatorId: indicator.id,
-          orgUnitId: row[ouIndex],
-          periodId: row[peIndex],
-          value,
-          numerator: numeratorIndex === undefined ? null : parseCell(row[numeratorIndex]),
-          denominator: denominatorIndex === undefined ? null : parseCell(row[denominatorIndex]),
-          disaggregation: null,
+      for (const periods of periodChunks) {
+        const response = await this.client.analytics({
+          dx: [...byDx.keys()],
+          pe: periods.map((period) => period.id),
+          ou: roots,
+          level,
+          includeNumDen: true,
         });
+
+        const columnIndex = new Map(response.headers.map((header, index) => [header.name, index]));
+        const dxIndex = columnIndex.get('dx');
+        const peIndex = columnIndex.get('pe');
+        const ouIndex = columnIndex.get('ou');
+        const valueIndex = columnIndex.get('value');
+        if (dxIndex === undefined || peIndex === undefined || ouIndex === undefined || valueIndex === undefined) {
+          continue;
+        }
+        const numeratorIndex = columnIndex.get('numerator');
+        const denominatorIndex = columnIndex.get('denominator');
+
+        for (const row of response.rows) {
+          const indicator = byDx.get(row[dxIndex]);
+          if (!indicator) continue;
+          const value = parseCell(row[valueIndex]);
+          if (value === null) continue;
+          observations.push({
+            indicatorId: indicator.id,
+            orgUnitId: row[ouIndex],
+            periodId: row[peIndex],
+            value,
+            numerator: numeratorIndex === undefined ? null : parseCell(row[numeratorIndex]),
+            denominator: denominatorIndex === undefined ? null : parseCell(row[denominatorIndex]),
+            disaggregation: null,
+          });
+        }
+      }
+    }
+
+    // Units above the roots: each is computed from the roots beneath it, and
+    // only where every one of those roots has a value — a federal figure built
+    // from one state would silently present that state as the whole.
+    const ancestors = request.orgUnits.filter((unit) => unit.path.length < rootDepth);
+    const rootIdSet = new Set(roots);
+    const rootObservations = new Map<string, Observation>();
+    for (const observation of observations) {
+      if (rootIdSet.has(observation.orgUnitId)) {
+        rootObservations.set(
+          `${observation.orgUnitId}|${observation.indicatorId}|${observation.periodId}`,
+          observation,
+        );
+      }
+    }
+    for (const ancestor of ancestors) {
+      const beneath = rootUnits.filter((unit) => unit.path.includes(ancestor.id));
+      if (beneath.length === 0) continue;
+      for (const indicator of mapped) {
+        for (const period of request.periods) {
+          const parts = beneath.map((unit) =>
+            rootObservations.get(`${unit.id}|${indicator.id}|${period.id}`),
+          );
+          if (parts.some((part) => part === undefined)) continue;
+          const combined = combine(parts as Observation[]);
+          if (combined) observations.push({ ...combined, orgUnitId: ancestor.id });
+        }
       }
     }
     return observations;
   }
 
+  /**
+   * Completeness and timeliness from data set registrations.
+   *
+   * Only the data sets the registry's indicators come from are considered, and
+   * a unit is expected to report a data set only where DHIS2 assigns it. A
+   * monthly data set counts as reported for a quarter when all three months
+   * were registered; it was on time when the last of them was.
+   */
   async fetchReporting(request: FetchRequest & { datasets: Dataset[] }): Promise<ReportingRecord[]> {
-    const root = request.orgUnits.find((unit) => unit.parentId === null) ?? request.orgUnits[0];
-    if (!root) return [];
+    const referenced = new Set(request.indicators.map((indicator) => indicator.source.datasetId));
+    const datasets = request.datasets.filter((dataset) => referenced.has(dataset.id));
+    if (datasets.length === 0 || request.periods.length === 0) return [];
+
+    const roots = await this.scopeRoots();
+    const known = new Set(request.orgUnits.map((unit) => unit.id));
 
     const response = await this.client.completeDataSetRegistrations({
-      dataSet: request.datasets.map((set) => set.id),
-      period: request.periods.map((period) => period.id),
-      orgUnit: root.id,
+      dataSet: datasets.map((set) => set.id),
+      startDate: request.periods[0].startDate,
+      endDate: request.periods[request.periods.length - 1].endDate,
+      orgUnit: roots,
       children: true,
     });
 
-    const registrations = response.completeDataSetRegistrations ?? [];
-    const completed = new Map(
-      registrations
-        .filter((registration) => registration.completed !== false)
-        .map((registration) => [
-          `${registration.organisationUnit}|${registration.dataSet}|${registration.period}`,
-          registration.date ?? null,
-        ]),
-    );
+    // Registrations folded into analysis periods: count and latest date.
+    const periodFor = (dhis2Period: string): Period | undefined => {
+      const start = periodStart(dhis2Period);
+      if (!start) return undefined;
+      return request.periods.find((period) => period.startDate <= start && start <= period.endDate);
+    };
+    const completed = new Map<string, { count: number; latest: string | null }>();
+    for (const registration of response.completeDataSetRegistrations ?? []) {
+      if (registration.completed === false) continue;
+      const period = periodFor(registration.period);
+      if (!period) continue;
+      const key = `${registration.organisationUnit}|${registration.dataSet}|${period.id}`;
+      const entry = completed.get(key) ?? { count: 0, latest: null };
+      entry.count += 1;
+      if (registration.date && (!entry.latest || registration.date > entry.latest)) {
+        entry.latest = registration.date;
+      }
+      completed.set(key, entry);
+    }
 
-    // Every reporting org unit is expected to report every dataset in every
-    // period; DHIS2 only records the registrations that happened, so absence is
-    // what completeness measures.
-    const reportingUnits = request.orgUnits.filter((unit) => unit.level === 'FACILITY');
     const records: ReportingRecord[] = [];
-    for (const unit of reportingUnits) {
-      for (const dataset of request.datasets) {
+    for (const dataset of datasets) {
+      const assigned = (
+        await Promise.all(roots.map((root) => this.client.dataSetAssignments(dataset.id, root)))
+      )
+        .flat()
+        .filter((id) => known.has(id));
+      for (const orgUnitId of new Set(assigned)) {
         for (const period of request.periods) {
-          const key = `${unit.id}|${dataset.id}|${period.id}`;
-          const submittedAt = completed.get(key);
+          const entry = completed.get(`${orgUnitId}|${dataset.id}|${period.id}`);
           const due = new Date(`${period.endDate}T00:00:00Z`);
           due.setUTCDate(due.getUTCDate() + dataset.dueDays);
+          const reported = (entry?.count ?? 0) >= submissionsPerPeriod(dataset, period);
           records.push({
-            orgUnitId: unit.id,
+            orgUnitId,
             datasetId: dataset.id,
             periodId: period.id,
             expected: true,
-            reported: completed.has(key),
-            submittedAt: submittedAt ?? null,
+            reported,
+            submittedAt: reported ? (entry?.latest ?? null) : null,
             dueDate: due.toISOString().slice(0, 10),
           });
         }

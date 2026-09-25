@@ -18,12 +18,12 @@ export interface PeriodOption {
 }
 
 const LEVEL_LABEL: Record<OrgLevel, string> = {
-  // The top of the hierarchy is the programme, not the country: ASPIRE-GAC
-  // covers two states, and calling that level "national" would claim national
-  // coverage the data does not have.
-  COUNTRY: 'Programme',
+  // The federal tier aggregates only the programme states, not the whole
+  // country, so it is labelled "Federal" rather than "National".
+  COUNTRY: 'Federal',
   STATE: 'State',
   LGA: 'LGA',
+  WARD: 'Ward',
   FACILITY: 'Facility',
 };
 

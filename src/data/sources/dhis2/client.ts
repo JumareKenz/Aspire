@@ -113,8 +113,23 @@ export class Dhis2Client {
     return this.request<{ version: string; contextPath: string }>('system/info');
   }
 
-  /** Full org-unit hierarchy with levels, parents and coordinates. */
-  async organisationUnits(): Promise<
+  /** The org units the authenticated user may view data for. */
+  async me(): Promise<{
+    dataViewOrganisationUnits?: Array<{ id: string }>;
+    organisationUnits?: Array<{ id: string }>;
+  }> {
+    return this.request('me', {
+      fields: 'dataViewOrganisationUnits[id],organisationUnits[id]',
+    });
+  }
+
+  /**
+   * Org units with levels, parents and coordinates: the subtree beneath `root`
+   * inclusive, or the listed units when `ids` is given. A national instance
+   * holds tens of thousands of units, so the hierarchy is always fetched by
+   * subtree rather than whole.
+   */
+  async organisationUnits(selector: { root: string } | { ids: string[] }): Promise<
     Array<{
       id: string;
       code?: string;
@@ -125,11 +140,27 @@ export class Dhis2Client {
       geometry?: { type: string; coordinates: number[] | number[][][] };
     }>
   > {
+    const filter =
+      'root' in selector ? `path:like:${selector.root}` : `id:in:[${selector.ids.join(',')}]`;
     const response = await this.request<{ organisationUnits: never[] }>('organisationUnits', {
+      filter,
       fields: 'id,code,displayName,level,parent[id],path,geometry',
       paging: 'false',
     });
     return response.organisationUnits;
+  }
+
+  /** Units beneath `root` that a data set is assigned to, i.e. expected to report it. */
+  async dataSetAssignments(dataSet: string, root: string): Promise<string[]> {
+    const response = await this.request<{ organisationUnits: Array<{ id: string }> }>(
+      'organisationUnits',
+      {
+        filter: [`dataSets.id:eq:${dataSet}`, `path:like:${root}`],
+        fields: 'id',
+        paging: 'false',
+      },
+    );
+    return response.organisationUnits.map((unit) => unit.id);
   }
 
   async dataSets(): Promise<
@@ -178,11 +209,17 @@ export class Dhis2Client {
     });
   }
 
-  /** Completeness registrations, used for reporting completeness and timeliness. */
+  /**
+   * Completeness registrations between two dates, used for reporting
+   * completeness and timeliness. A date range rather than period ids, because
+   * monthly data sets register monthly periods while the platform analyses
+   * quarters.
+   */
   async completeDataSetRegistrations(params: {
     dataSet: string[];
-    period: string[];
-    orgUnit: string;
+    startDate: string;
+    endDate: string;
+    orgUnit: string[];
     children: boolean;
   }): Promise<{
     completeDataSetRegistrations?: Array<{
@@ -195,7 +232,8 @@ export class Dhis2Client {
   }> {
     return this.request('completeDataSetRegistrations', {
       dataSet: params.dataSet,
-      period: params.period,
+      startDate: params.startDate,
+      endDate: params.endDate,
       orgUnit: params.orgUnit,
       children: String(params.children),
     });

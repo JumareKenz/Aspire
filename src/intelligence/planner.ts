@@ -40,7 +40,9 @@ export async function planQuery(
 
   try {
     const { generateText, Output } = await import('ai');
-    const selectable = context.orgUnits.filter((unit) => unit.level !== 'FACILITY').slice(0, 200);
+    const selectable = context.orgUnits
+      .filter((unit) => unit.level !== 'WARD' && unit.level !== 'FACILITY')
+      .slice(0, 200);
 
     const { output } = await generateText({
       model: MODEL_ID,

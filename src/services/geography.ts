@@ -69,7 +69,7 @@ export interface MapData {
    * The level the shapes represent, which is not always the level directly
    * below the selection — see `getMapData`.
    */
-  drawnLevel: 'STATE' | 'LGA' | 'FACILITY' | null;
+  drawnLevel: 'STATE' | 'LGA' | 'WARD' | 'FACILITY' | null;
   /**
    * Panels the canvas is divided into, when the map draws more than one
    * geography that does not adjoin the others. Empty for a single-panel map.
@@ -170,6 +170,20 @@ function loadBoundaries(): BoundaryFeature[] | null {
   return boundaryCache.features;
 }
 
+/**
+ * Name key for matching a unit to a boundary feature. Ignores case,
+ * punctuation, an "LGA"/"Local Government Area" suffix and doubled letters, so
+ * DHIS2's "Dange-Shuni Local Government Area" meets the boundary file's
+ * "Dange Shuni" and "Wamako" meets "Wamakko".
+ */
+function boundaryNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+(local government area|lga)$/, '')
+    .replace(/[^a-z]/g, '')
+    .replace(/(.)\1+/g, '$1');
+}
+
 const WIDTH = 720;
 const HEIGHT = 520;
 
@@ -193,26 +207,35 @@ const HEIGHT = 520;
 export async function getMapData(orgUnitId: string, periodId: string): Promise<MapData> {
   const direct = await listChildren(orgUnitId);
   const boundaries = loadBoundaries();
-  const byOrgUnit = new Map(
+  const byId = new Map(
     (boundaries ?? []).map((feature) => [
       String(feature.properties.orgUnitId ?? feature.properties.id ?? ''),
       feature,
     ]),
   );
+  // DHIS2 identifies units by its own ids, which a boundary file prepared
+  // elsewhere does not carry, so features are also matched by name.
+  const byName = new Map(
+    (boundaries ?? [])
+      .filter((feature) => typeof feature.properties.name === 'string')
+      .map((feature) => [boundaryNameKey(feature.properties.name as string), feature]),
+  );
+  const featureFor = (unit: { id: string; name: string }) =>
+    byId.get(unit.id) ?? byName.get(boundaryNameKey(unit.name));
 
   let units = direct;
   /** Parent name per unit, set only when the map has descended a level. */
   let groups = new Map<string, string>();
   let descended = false;
 
-  if (boundaries && direct.length > 0 && !direct.some((child) => byOrgUnit.has(child.id))) {
+  if (boundaries && direct.length > 0 && !direct.some((child) => featureFor(child))) {
     const grandchildren = await Promise.all(
       direct.map(async (child) => ({ parent: child, children: await listChildren(child.id) })),
     );
     const flattened = grandchildren.flatMap((entry) =>
       entry.children.map((child) => ({ child, parent: entry.parent })),
     );
-    if (flattened.some((entry) => byOrgUnit.has(entry.child.id))) {
+    if (flattened.some((entry) => featureFor(entry.child))) {
       units = flattened.map((entry) => entry.child);
       groups = new Map(flattened.map((entry) => [entry.child.id, entry.parent.name]));
       descended = true;
@@ -266,7 +289,7 @@ export async function getMapData(orgUnitId: string, periodId: string): Promise<M
 
   if (boundaries && boundaries.length > 0) {
     const relevant = units
-      .map((child) => ({ child, feature: byOrgUnit.get(child.id) }))
+      .map((child) => ({ child, feature: featureFor(child) }))
       .filter((entry): entry is { child: (typeof units)[number]; feature: BoundaryFeature } =>
         Boolean(entry.feature),
       );

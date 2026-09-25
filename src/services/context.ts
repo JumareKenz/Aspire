@@ -54,8 +54,10 @@ export async function resolvePageContext(searchParams: SearchParams): Promise<Pa
   const usable = candidate && isInScope(user.scope, candidate.path) ? candidate : null;
   const orgUnit = usable ?? scope.root;
 
+  // Wards and facilities are reached by drilling down; hundreds of them in the
+  // selector would bury the levels people actually choose between.
   const selectable = scope.units
-    .filter((unit) => unit.level !== 'FACILITY')
+    .filter((unit) => unit.level !== 'WARD' && unit.level !== 'FACILITY')
     .sort((a, b) =>
       a.path.length === b.path.length
         ? a.name.localeCompare(b.name)

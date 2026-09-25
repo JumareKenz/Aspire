@@ -62,51 +62,79 @@ describe('Dhis2Adapter', () => {
     expect(calls[0].url).not.toContain('test-token');
   });
 
-  it('maps a state-rooted hierarchy onto canonical levels by default', async () => {
-    // The target instance is rooted at the state: State → LGA → Ward →
-    // Community → Facility. Wards and communities have no canonical tier and
-    // fold into the reporting level below the LGA.
+  it('imports the scoped states beneath the federal tier, not the whole country', async () => {
+    const requested: string[] = [];
+    mockFetch((raw) => {
+      const url = decodeURIComponent(raw);
+      requested.push(url);
+      if (url.includes('/api/me')) {
+        return { dataViewOrganisationUnits: [{ id: 'ou-ba' }, { id: 'ou-so' }] };
+      }
+      if (url.includes('path:like:ou-ba')) {
+        return {
+          organisationUnits: [
+            { id: 'ou-ba', displayName: 'ba Bauchi State', level: 2, parent: { id: 'ng' }, path: '/ng/ou-ba' },
+            { id: 'ba-lga', displayName: 'ba Alkaleri Local Government Area', level: 3, parent: { id: 'ou-ba' }, path: '/ng/ou-ba/ba-lga' },
+            { id: 'ba-ward', displayName: 'ba Pali Ward', level: 4, parent: { id: 'ba-lga' }, path: '/ng/ou-ba/ba-lga/ba-ward' },
+            {
+              id: 'ba-fac',
+              displayName: 'ba Pali PHC',
+              level: 5,
+              parent: { id: 'ba-ward' },
+              path: '/ng/ou-ba/ba-lga/ba-ward/ba-fac',
+              geometry: { type: 'Point', coordinates: [10.3, 9.9] },
+            },
+          ],
+        };
+      }
+      if (url.includes('path:like:ou-so')) {
+        return {
+          organisationUnits: [
+            { id: 'ou-so', displayName: 'so Sokoto State', level: 2, parent: { id: 'ng' }, path: '/ng/ou-so' },
+          ],
+        };
+      }
+      return { organisationUnits: [{ id: 'ng', displayName: 'ng Federal Government', level: 1, path: '/ng' }] };
+    });
+
+    const units = await new Dhis2Adapter(config).fetchOrgUnits();
+    const byId = new Map(units.map((unit) => [unit.id, unit]));
+    expect(byId.get('ng')).toMatchObject({ level: 'COUNTRY', name: 'Federal Government', parentId: null });
+    expect(byId.get('ou-ba')).toMatchObject({ level: 'STATE', name: 'Bauchi State', parentId: 'ng' });
+    expect(byId.get('ba-lga')).toMatchObject({ level: 'LGA', parentId: 'ou-ba' });
+    expect(byId.get('ba-ward')).toMatchObject({ level: 'WARD', parentId: 'ba-lga' });
+    expect(byId.get('ba-fac')).toMatchObject({
+      level: 'FACILITY',
+      parentId: 'ba-ward',
+      path: ['ng', 'ou-ba', 'ba-lga', 'ba-ward', 'ba-fac'],
+      centroid: { lon: 10.3, lat: 9.9 },
+    });
+    // Subtrees are requested by path; the whole instance never is.
+    expect(requested.filter((url) => url.includes('/api/organisationUnits')).every((url) => url.includes('filter='))).toBe(true);
+  });
+
+  it('skips levels left out of the map and attaches their children to the nearest mapped ancestor', async () => {
+    vi.stubEnv('DHIS2_LEVEL_MAP', '1:STATE,2:LGA,3:WARD,5:FACILITY');
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'ou-state');
     mockFetch(() => ({
       organisationUnits: [
         { id: 'ou-state', displayName: 'Gombe State', level: 1, path: '/ou-state' },
-        { id: 'ou-lga', displayName: 'Akko', level: 2, parent: { id: 'ou-state' }, path: '/ou-state/ou-lga' },
-        {
-          id: 'ou-ward',
-          displayName: 'A Ward',
-          level: 3,
-          parent: { id: 'ou-lga' },
-          path: '/ou-state/ou-lga/ou-ward',
-          geometry: { type: 'Point', coordinates: [11.08, 10.1] },
-        },
-        { id: 'ou-fac', displayName: 'A Facility', level: 5, parent: { id: 'ou-ward' }, path: '/x/ou-fac' },
+        { id: 'ou-lga', displayName: 'Akko', level: 2, path: '/ou-state/ou-lga' },
+        { id: 'ou-ward', displayName: 'A Ward', level: 3, path: '/ou-state/ou-lga/ou-ward' },
+        { id: 'ou-comm', displayName: 'A Community', level: 4, path: '/ou-state/ou-lga/ou-ward/ou-comm' },
+        { id: 'ou-fac', displayName: 'A Facility', level: 5, path: '/ou-state/ou-lga/ou-ward/ou-comm/ou-fac' },
       ],
     }));
 
     const units = await new Dhis2Adapter(config).fetchOrgUnits();
-    expect(units.map((unit) => unit.level)).toEqual(['STATE', 'LGA', 'FACILITY', 'FACILITY']);
-    expect(units[1].parentId).toBe('ou-state');
-    expect(units[2].centroid).toEqual({ lon: 11.08, lat: 10.1 });
-  });
-
-  it('honours an explicit level map for a differently-shaped instance', async () => {
-    vi.stubEnv('DHIS2_LEVEL_MAP', '1:COUNTRY,2:STATE,3:LGA,4:FACILITY');
-    mockFetch(() => ({
-      organisationUnits: [
-        { id: 'root', displayName: 'Nigeria', level: 1, path: '/root' },
-        { id: 'ou-state', displayName: 'A State', level: 2, parent: { id: 'root' }, path: '/root/ou-state' },
-        { id: 'ou-lga', displayName: 'An LGA', level: 3, parent: { id: 'ou-state' }, path: '/a/ou-lga' },
-        { id: 'too-deep', displayName: 'Sub-unit', level: 5, path: '/a/b/c/too-deep' },
-      ],
-    }));
-
-    const units = await new Dhis2Adapter(config).fetchOrgUnits();
-    expect(units.map((unit) => unit.level)).toEqual(['COUNTRY', 'STATE', 'LGA']);
-    // Level 5 is beyond the configured map and is not imported as a guess.
-    expect(units.some((unit) => unit.id === 'too-deep')).toBe(false);
+    expect(units.map((unit) => unit.level)).toEqual(['STATE', 'LGA', 'WARD', 'FACILITY']);
+    expect(units.some((unit) => unit.id === 'ou-comm')).toBe(false);
+    expect(units[3]).toMatchObject({ parentId: 'ou-ward', path: ['ou-state', 'ou-lga', 'ou-ward', 'ou-fac'] });
   });
 
   it('rejects a malformed level map rather than importing a wrong hierarchy', async () => {
     vi.stubEnv('DHIS2_LEVEL_MAP', '1:PROVINCE');
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
     mockFetch(() => ({ organisationUnits: [] }));
     await expect(new Dhis2Adapter(config).fetchOrgUnits()).rejects.toThrow(/DHIS2_LEVEL_MAP/);
   });
@@ -123,86 +151,135 @@ describe('Dhis2Adapter', () => {
     ).rejects.toBeInstanceOf(Dhis2Error);
   });
 
+  const analyticsHeaders = [
+    { name: 'dx', column: 'Data', valueType: 'TEXT' },
+    { name: 'pe', column: 'Period', valueType: 'TEXT' },
+    { name: 'ou', column: 'Organisation unit', valueType: 'TEXT' },
+    { name: 'value', column: 'Value', valueType: 'NUMBER' },
+    { name: 'numerator', column: 'Numerator', valueType: 'NUMBER' },
+    { name: 'denominator', column: 'Denominator', valueType: 'NUMBER' },
+  ];
+
+  /** Only the named indicators mapped, to the given dx. */
+  function mappedOnly(dxById: Record<string, string>) {
+    return INDICATORS.map((indicator) => ({
+      ...indicator,
+      source: { ...indicator.source, dx: dxById[indicator.id] ?? null },
+    }));
+  }
+
   it('asks DHIS2 to aggregate, rather than downloading raw values', async () => {
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
     const requested: string[] = [];
     mockFetch((url) => {
       requested.push(url);
-      return {
-        headers: [
-          { name: 'dx', column: 'Data', valueType: 'TEXT' },
-          { name: 'pe', column: 'Period', valueType: 'TEXT' },
-          { name: 'ou', column: 'Organisation unit', valueType: 'TEXT' },
-          { name: 'value', column: 'Value', valueType: 'NUMBER' },
-          { name: 'numerator', column: 'Numerator', valueType: 'NUMBER' },
-          { name: 'denominator', column: 'Denominator', valueType: 'NUMBER' },
-        ],
-        rows: [['dx-anc4', '2026Q2', 'ou-lga', '64.5', '645', '1000']],
-      };
+      return { headers: analyticsHeaders, rows: [['dx-anc4', '2026Q2', 'ou-lga', '64.5', '645', '1000']] };
     });
 
-    const mapped = INDICATORS.map((indicator) =>
-      indicator.id === 'anc4-coverage'
-        ? { ...indicator, source: { ...indicator.source, dx: 'dx-anc4' } }
-        : indicator,
-    );
-
     const observations = await new Dhis2Adapter(config).fetchObservations({
-      orgUnits: [orgUnits[1]],
-      indicators: mapped,
+      orgUnits,
+      indicators: mappedOnly({ 'anc4-coverage': 'dx-anc4' }),
       periods: periodRange('2026Q2', 1),
     });
 
-    // One request per org level, not one per org unit.
-    expect(requested).toHaveLength(1);
+    // One request per org level beneath the root, not one per org unit.
+    expect(requested).toHaveLength(2);
     expect(requested.every((url) => url.includes('/api/analytics'))).toBe(true);
     // Level dimensions, not enumerated org unit ids, is what keeps the query small.
-    expect(requested.some((url) => url.includes('LEVEL-'))).toBe(true);
-    expect(observations).toEqual([
-      {
-        indicatorId: 'anc4-coverage',
-        orgUnitId: 'ou-lga',
-        periodId: '2026Q2',
-        value: 64.5,
-        numerator: 645,
-        denominator: 1000,
-        disaggregation: null,
-      },
-    ]);
+    expect(requested.every((url) => url.includes('LEVEL-'))).toBe(true);
+    expect(observations).toContainEqual({
+      indicatorId: 'anc4-coverage',
+      orgUnitId: 'ou-lga',
+      periodId: '2026Q2',
+      value: 64.5,
+      numerator: 645,
+      denominator: 1000,
+      disaggregation: null,
+    });
+  });
+
+  it('builds the federal figure from both states, weighting ratios by their denominators', async () => {
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'ou-ba,ou-so');
+    const national: OrgUnit[] = [
+      { id: 'ng', code: null, name: 'Federal Government', level: 'COUNTRY', parentId: null, path: ['ng'], centroid: null, active: true },
+      { id: 'ou-ba', code: null, name: 'Bauchi State', level: 'STATE', parentId: 'ng', path: ['ng', 'ou-ba'], centroid: null, active: true },
+      { id: 'ou-so', code: null, name: 'Sokoto State', level: 'STATE', parentId: 'ng', path: ['ng', 'ou-so'], centroid: null, active: true },
+    ];
+    const requested: string[] = [];
+    mockFetch((url) => {
+      requested.push(decodeURIComponent(url));
+      return {
+        headers: analyticsHeaders,
+        rows: [
+          // A percentage: 50% of 100 and 80% of 300.
+          ['dx-sba', '2026Q1', 'ou-ba', '50', '50', '100'],
+          ['dx-sba', '2026Q1', 'ou-so', '80', '240', '300'],
+          // A count, which has no numerator or denominator.
+          ['dx-fp', '2026Q1', 'ou-ba', '120', '', ''],
+          ['dx-fp', '2026Q1', 'ou-so', '80', '', ''],
+          // Only one state reported: no federal figure.
+          ['dx-sba', '2026Q2', 'ou-ba', '60', '60', '100'],
+        ],
+      };
+    });
+
+    const observations = await new Dhis2Adapter(config).fetchObservations({
+      orgUnits: national,
+      indicators: mappedOnly({ 'skilled-birth-attendance': 'dx-sba', 'fp-new-acceptors': 'dx-fp' }),
+      periods: periodRange('2026Q2', 2),
+    });
+
+    // The federal tier is never queried: the service user cannot view it.
+    expect(requested.every((url) => url.includes('LEVEL-2'))).toBe(true);
+    const federal = observations.filter((observation) => observation.orgUnitId === 'ng');
+    expect(federal).toHaveLength(2);
+    expect(federal.find((observation) => observation.indicatorId === 'skilled-birth-attendance')).toMatchObject({
+      periodId: '2026Q1',
+      value: 72.5,
+      numerator: 290,
+      denominator: 400,
+    });
+    expect(federal.find((observation) => observation.indicatorId === 'fp-new-acceptors')).toMatchObject({
+      periodId: '2026Q1',
+      value: 200,
+    });
   });
 
   it('skips analytics rows whose value is not a number', async () => {
-    mockFetch(() => ({
-      headers: [
-        { name: 'dx', column: 'Data', valueType: 'TEXT' },
-        { name: 'pe', column: 'Period', valueType: 'TEXT' },
-        { name: 'ou', column: 'Organisation unit', valueType: 'TEXT' },
-        { name: 'value', column: 'Value', valueType: 'NUMBER' },
-      ],
-      rows: [
-        ['dx-anc4', '2026Q2', 'ou-lga', ''],
-        ['dx-anc4', '2026Q2', 'ou-lga', '12'],
-      ],
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
+    mockFetch((url) => ({
+      headers: analyticsHeaders.slice(0, 4),
+      rows: url.includes('LEVEL-3')
+        ? [
+            ['dx-anc4', '2026Q2', 'ou-lga', ''],
+            ['dx-anc4', '2026Q2', 'ou-lga', '12'],
+          ]
+        : [],
     }));
-    const mapped = INDICATORS.map((indicator) =>
-      indicator.id === 'anc4-coverage'
-        ? { ...indicator, source: { ...indicator.source, dx: 'dx-anc4' } }
-        : indicator,
-    );
     const observations = await new Dhis2Adapter(config).fetchObservations({
-      orgUnits: [orgUnits[1]],
-      indicators: mapped,
+      orgUnits,
+      indicators: mappedOnly({ 'anc4-coverage': 'dx-anc4' }),
       periods: periodRange('2026Q2', 1),
     });
     expect(observations).toHaveLength(1);
     expect(observations[0].value).toBe(12);
   });
 
-  it('treats an absent completeness registration as a missing report', async () => {
-    mockFetch(() => ({
-      completeDataSetRegistrations: [
-        { period: '2026Q2', organisationUnit: 'fac-a', dataSet: 'ds-1', date: '2026-07-10T00:00:00.000Z' },
-      ],
-    }));
+  it('counts a monthly data set as reported for a quarter only when all three months were', async () => {
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
+    mockFetch((url) => {
+      if (url.includes('/api/organisationUnits')) {
+        return { organisationUnits: [{ id: 'fac-a' }, { id: 'fac-b' }] };
+      }
+      return {
+        completeDataSetRegistrations: [
+          { period: '202604', organisationUnit: 'fac-a', dataSet: 'ds-1', date: '2026-05-10T00:00:00.000' },
+          { period: '202605', organisationUnit: 'fac-a', dataSet: 'ds-1', date: '2026-06-10T00:00:00.000' },
+          { period: '202606', organisationUnit: 'fac-a', dataSet: 'ds-1', date: '2026-07-10T00:00:00.000' },
+          { period: '202604', organisationUnit: 'fac-b', dataSet: 'ds-1', date: '2026-05-10T00:00:00.000' },
+        ],
+      };
+    });
 
     const facilities: OrgUnit[] = [
       { id: 'fac-a', code: null, name: 'A', level: 'FACILITY', parentId: 'ou-lga', path: ['root', 'ou-lga', 'fac-a'], centroid: null, active: true },
@@ -211,15 +288,22 @@ describe('Dhis2Adapter', () => {
 
     const records = await new Dhis2Adapter(config).fetchReporting({
       orgUnits: [orgUnits[0], ...facilities],
-      indicators: INDICATORS,
+      indicators: INDICATORS.map((indicator) => ({ ...indicator, source: { ...indicator.source, datasetId: 'ds-1' } })),
       periods: periodRange('2026Q2', 1),
-      datasets: [{ id: 'ds-1', name: 'Dataset', periodType: 'QUARTERLY', dueDays: 15 }],
+      datasets: [
+        { id: 'ds-1', name: 'Dataset', periodType: 'MONTHLY', dueDays: 15 },
+        // Not referenced by any indicator, so not expected of anyone.
+        { id: 'ds-other', name: 'Other', periodType: 'MONTHLY', dueDays: 15 },
+      ],
     });
 
     expect(records).toHaveLength(2);
-    expect(records.find((record) => record.orgUnitId === 'fac-a')!.reported).toBe(true);
+    expect(records.find((record) => record.orgUnitId === 'fac-a')).toMatchObject({
+      reported: true,
+      submittedAt: '2026-07-10T00:00:00.000',
+    });
     expect(records.find((record) => record.orgUnitId === 'fac-b')!.reported).toBe(false);
-    expect(records.every((record) => record.expected)).toBe(true);
+    expect(records.every((record) => record.expected && record.datasetId === 'ds-1')).toBe(true);
   });
 });
 

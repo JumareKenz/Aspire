@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "sync": "tsx --env-file-if-exists=.env.local scripts/sync.ts",
+    "registry:apply-sources": "tsx --env-file-if-exists=.env.local scripts/apply-indicator-sources.ts",
     "eval:ai": "tsx --env-file-if-exists=.env.local scripts/evaluate-intelligence.ts"
   },
   "dependencies": {

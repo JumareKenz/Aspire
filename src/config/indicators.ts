@@ -5,15 +5,16 @@ import type { IndicatorDefinition } from '@/core/registry/types';
  *
  * Every field here is configuration. In particular:
  *
- * - `source.dx` carries a real DHIS2 UID where the target instance actually
- *   defines that indicator, and `null` where it does not. A null mapping is
- *   skipped at synchronisation and reported in Admin, so the gap is visible
- *   rather than silently returning nothing. The mapped UIDs below were read from the
- *   reference DHIS2 instance's own metadata (8 indicators, 187 data elements)
- *   and must be re-confirmed against each programme state's instance before
- *   live use — UIDs are per-instance and do not transfer;
- *   the remainder need either a DHIS2 indicator defined for them or a mapping
- *   onto the underlying data elements, which is set in Admin → Indicators.
+ * - `source.dx` carries a real DHIS2 UID where the national instance
+ *   (staging.dhis2nigeria.org.ng) defines that indicator with data for Bauchi
+ *   and Sokoto, and `null` where it does not. A null mapping is skipped at
+ *   synchronisation and reported in Admin, so the gap is visible rather than
+ *   silently returning nothing. UIDs are per-instance and do not transfer; the
+ *   unmapped indicators need either a DHIS2 indicator defined for them or a
+ *   mapping onto the underlying data elements, which is set in Admin →
+ *   Indicators. Each mapping is noted where it is only an approximation.
+ * - `source.datasetId` is the NHMIS monthly summary form the data is reported
+ *   through, used for completeness and timeliness.
  * - `defaultTarget` values are placeholders pending the official ASPIRE-GAC
  *   targets, and are overridden per org unit and period by the targets table.
  */
@@ -25,8 +26,11 @@ const percentQuality = {
   maxPeriodChangePct: 60,
 } as const;
 
-/** A mapping onto a DHIS2 indicator UID on the configured instance. */
-function dhis2(dx: string, datasetId = 'ds-srhr-core'): IndicatorDefinition['source'] {
+/** NHMIS Monthly Summary Form (Version 2019) on the national instance. */
+const NHMIS = 'O82o1WlMisO';
+
+/** A mapping onto a DHIS2 indicator or data element UID on the configured instance. */
+function dhis2(dx: string, datasetId = NHMIS): IndicatorDefinition['source'] {
   return { system: 'DHIS2', dx, datasetId, numeratorDx: null, denominatorDx: null };
 }
 
@@ -45,7 +49,7 @@ function percentIndicator(
     disaggregations: ['age', 'sex'],
     scoring: { kind: 'TARGET_RATIO', cap: 100 },
     quality: { ...percentQuality },
-    source: { system: 'DHIS2', dx: null, datasetId: 'ds-srhr-core', numeratorDx: null, denominatorDx: null },
+    source: { system: 'DHIS2', dx: null, datasetId: NHMIS, numeratorDx: null, denominatorDx: null },
     active: true,
     ...init,
   };
@@ -60,7 +64,8 @@ export const INDICATORS: IndicatorDefinition[] = [
       'Pregnant women reporting for antenatal care before 20 weeks, as a share of expected pregnancies.',
     domainId: 'maternal-health',
     defaultTarget: 75,
-    source: dhis2('lHBIJsXmN6N'),
+    // "Antenatal 1st visits before 20 weeks rate" (xIvjr5gGVpp) exists on the
+    // national instance but returns no data for either state.
   }),
   percentIndicator({
     id: 'skilled-birth-attendance',
@@ -69,7 +74,8 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Deliveries attended by a skilled health worker, as a share of expected deliveries.',
     domainId: 'maternal-health',
     defaultTarget: 80,
-    source: dhis2('DD480KjzWyI'),
+    // Skilled birth attendance divided by deliveries.
+    source: dhis2('Ly3HmUoHQEP'),
   }),
   percentIndicator({
     id: 'pnc-48h',
@@ -78,7 +84,8 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Women attending a postnatal clinic visit within three days of delivery.',
     domainId: 'maternal-health',
     defaultTarget: 70,
-    source: dhis2('NbBhtRKOcNG'),
+    // % 1st postnatal visits within 3 days, per live birth.
+    source: dhis2('tIxdhKl7XQr'),
   }),
   {
     ...percentIndicator({
@@ -89,7 +96,7 @@ export const INDICATORS: IndicatorDefinition[] = [
         'Deliveries monitored using a partograph, a proxy for quality of intrapartum care.',
       domainId: 'maternal-health',
       defaultTarget: 85,
-      source: dhis2('GatsIlJUfmd'),
+      source: dhis2('dbvEiUdVpvk'),
     }),
   },
 
@@ -107,7 +114,10 @@ export const INDICATORS: IndicatorDefinition[] = [
     defaultTarget: 10,
     scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
     quality: { min: 0, max: 200, numeratorMustNotExceedDenominator: false, maxPeriodChangePct: 80 },
-    source: dhis2('wBHe2MdXjPA'),
+    // "% still births" (VgvLo7Bsv4d) on the national instance has its whole
+    // formula in the numerator and 100 as the denominator, so its values are
+    // not a rate; "Fresh Still Birth Rate" (kFpeaNR08cY) has almost no data.
+    source: { system: 'DHIS2', dx: null, datasetId: NHMIS, numeratorDx: null, denominatorDx: null },
     active: true,
   },
 
@@ -118,6 +128,8 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Women of reproductive age using a modern contraceptive method.',
     domainId: 'family-planning',
     defaultTarget: 35,
+    // Survey-based. The instance's "Contraceptive Prevalence Rate" divides by a
+    // population estimate and returns values near zero.
   }),
   {
     id: 'fp-new-acceptors',
@@ -133,7 +145,8 @@ export const INDICATORS: IndicatorDefinition[] = [
     defaultTarget: 1200,
     scoring: { kind: 'TARGET_RATIO', cap: 100 },
     quality: { min: 0, max: null, numeratorMustNotExceedDenominator: false, maxPeriodChangePct: 80 },
-    source: { system: 'DHIS2', dx: null, datasetId: 'ds-srhr-core', numeratorDx: null, denominatorDx: null },
+    // "New FP Acceptors" data element, summed.
+    source: dhis2('mvBO08ctlWw'),
     active: true,
   },
   percentIndicator({
@@ -143,6 +156,7 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Eligible clients receiving documented family planning counselling.',
     domainId: 'family-planning',
     defaultTarget: 85,
+    source: dhis2('XUCdlOc1j4G'),
   }),
 
   percentIndicator({
@@ -168,6 +182,9 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Pregnant adolescents aged 15–19 attending a first antenatal contact.',
     domainId: 'adolescent-srhr',
     defaultTarget: 65,
+    // Approximation: "% ANC attendance by adolescents" is the adolescent share
+    // of all ANC attendance, not coverage of adolescent pregnancies.
+    source: dhis2('vmKtSSkTHGh'),
   }),
 
   percentIndicator({
@@ -177,6 +194,8 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Reported survivors of gender-based violence who received the clinical care package.',
     domainId: 'gbv-response',
     defaultTarget: 80,
+    // Post-GBV care received, per GBV case seen.
+    source: dhis2('Ttk7tCyGO0p'),
   }),
   percentIndicator({
     id: 'gbv-referral-completion',
@@ -185,6 +204,9 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Referrals for survivors of gender-based violence confirmed as completed.',
     domainId: 'gbv-response',
     defaultTarget: 70,
+    // Approximation: cases referred for further treatment, per case seen. The
+    // instance records referrals made, not referrals completed.
+    source: dhis2('SR6GHHosrlQ'),
   }),
 
   percentIndicator({
@@ -194,6 +216,7 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Pregnant women tested for HIV and receiving their result during antenatal care.',
     domainId: 'hiv-sti',
     defaultTarget: 90,
+    source: dhis2('plMyll5XZwz'),
   }),
   percentIndicator({
     id: 'sti-management',
@@ -220,7 +243,7 @@ export const INDICATORS: IndicatorDefinition[] = [
     // series highly, which is the correct reading for a stock-out rate.
     scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
     quality: { ...percentQuality },
-    source: { system: 'DHIS2', dx: null, datasetId: 'ds-srhr-commodities', numeratorDx: null, denominatorDx: null },
+    source: { system: 'DHIS2', dx: null, datasetId: NHMIS, numeratorDx: null, denominatorDx: null },
     active: true,
   },
   {
@@ -235,7 +258,7 @@ export const INDICATORS: IndicatorDefinition[] = [
     source: {
       system: 'DHIS2',
       dx: null,
-      datasetId: 'ds-srhr-commodities',
+      datasetId: NHMIS,
       numeratorDx: null,
       denominatorDx: null,
     },

@@ -7,14 +7,21 @@
  * the engines that operate on them are pure and unit-testable.
  */
 
-/** Administrative hierarchy. Mirrors DHIS2 org-unit levels 1..4. */
-export type OrgLevel = 'COUNTRY' | 'STATE' | 'LGA' | 'FACILITY';
+/**
+ * Administrative hierarchy: Federal → State → LGA → Ward → Facility, which is
+ * the shape of the national DHIS2 instance. `COUNTRY` is the federal tier.
+ */
+export type OrgLevel = 'COUNTRY' | 'STATE' | 'LGA' | 'WARD' | 'FACILITY';
+
+/** Canonical levels, top first. */
+export const ORG_LEVELS: OrgLevel[] = ['COUNTRY', 'STATE', 'LGA', 'WARD', 'FACILITY'];
 
 export const ORG_LEVEL_DEPTH: Record<OrgLevel, number> = {
   COUNTRY: 1,
   STATE: 2,
   LGA: 3,
-  FACILITY: 4,
+  WARD: 4,
+  FACILITY: 5,
 };
 
 export interface OrgUnit {
