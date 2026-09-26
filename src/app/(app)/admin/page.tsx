@@ -8,6 +8,7 @@ import { getActiveMethodology, listIndicators } from '@/data/repositories/regist
 import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { listFindings } from '@/data/repositories/findings';
 import { latestCompletePeriodId } from '@/data/sync/periods';
+import { defaultPeriodId } from '@/services/scorecards';
 import { PageHeader } from '@/design/patterns/PageHeader';
 import { Card, CardBody, CardHeader } from '@/design/primitives/Card';
 import { Badge } from '@/design/primitives/Badge';
@@ -15,6 +16,7 @@ import { TableWrap, Td, Th, Tr } from '@/design/primitives/Table';
 import { EmptyState } from '@/design/primitives/States';
 import { AdminNav } from './AdminNav';
 import { SyncPanel } from './SyncPanel';
+import { isMapped } from '@/core/registry/mapping';
 
 export const metadata: Metadata = { title: 'Admin' };
 export const dynamic = 'force-dynamic';
@@ -41,7 +43,8 @@ export default async function AdminPage() {
       listOrgUnits(),
       listFindings({ status: 'OPEN' }),
     ]);
-  const unmapped = indicators.filter((indicator) => indicator.source.dx === null);
+  const unmapped = indicators.filter((indicator) => !isMapped(indicator));
+  const defaultPeriod = await defaultPeriodId();
 
   return (
     <>
@@ -81,6 +84,10 @@ export default async function AdminPage() {
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-tertiary)]">Last success</dt>
                 <dd className="font-medium">{relativeAge(lastSuccess?.finishedAt ?? null)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-[var(--text-tertiary)]">Default period</dt>
+                <dd className="numeric font-medium">{defaultPeriod}</dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-tertiary)]">Latest complete period</dt>

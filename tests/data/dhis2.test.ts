@@ -245,6 +245,53 @@ describe('Dhis2Adapter', () => {
     });
   });
 
+  it('calculates a rate from data elements where DHIS2 has no usable indicator', async () => {
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
+    const requested: string[] = [];
+    mockFetch((url) => {
+      requested.push(decodeURIComponent(url));
+      return {
+        headers: analyticsHeaders,
+        rows: url.includes('LEVEL-3')
+          ? [
+              // 30 still births and 1,470 live births: 20 per 1,000 total births.
+              ['de-still', '2026Q1', 'ou-lga', '30', '', ''],
+              ['de-live', '2026Q1', 'ou-lga', '1470', '', ''],
+              // Live births with no still-birth report: no value, rather than zero.
+              ['de-live', '2025Q4', 'ou-lga', '1500', '', ''],
+            ]
+          : [],
+      };
+    });
+    const indicators = INDICATORS.map((indicator) => ({
+      ...indicator,
+      source:
+        indicator.id === 'still-birth-rate'
+          ? { ...indicator.source, dx: null, numeratorDx: 'de-still', denominatorDx: 'de-live+de-still' }
+          : { ...indicator.source, dx: null, numeratorDx: null, denominatorDx: null },
+    }));
+
+    const observations = await new Dhis2Adapter(config).fetchObservations({
+      orgUnits,
+      indicators,
+      periods: periodRange('2026Q1', 2),
+    });
+
+    // The components are requested, not a DHIS2 indicator.
+    expect(requested.every((url) => url.includes('dx:de-still;de-live') || url.includes('dx:de-live;de-still'))).toBe(true);
+    expect(observations).toEqual([
+      {
+        indicatorId: 'still-birth-rate',
+        orgUnitId: 'ou-lga',
+        periodId: '2026Q1',
+        value: 20,
+        numerator: 30,
+        denominator: 1500,
+        disaggregation: null,
+      },
+    ]);
+  });
+
   it('skips analytics rows whose value is not a number', async () => {
     vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'root');
     mockFetch((url) => ({

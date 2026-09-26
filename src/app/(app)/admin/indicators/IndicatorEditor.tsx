@@ -8,6 +8,7 @@ import { Badge } from '@/design/primitives/Badge';
 import { Button } from '@/design/primitives/Button';
 import { Drawer } from '@/design/primitives/Drawer';
 import { TextInput } from '@/design/primitives/Field';
+import { mappingLabel } from '@/core/registry/mapping';
 
 /**
  * Indicator configuration.
@@ -102,8 +103,8 @@ export function IndicatorEditor({
                 {indicator.directionality === 'HIGHER_IS_BETTER' ? 'Higher is better' : 'Lower is better'}
               </Td>
               <Td>
-                {indicator.source.dx ? (
-                  <span className="font-mono text-[11px]">{indicator.source.dx}</span>
+                {mappingLabel(indicator) ? (
+                  <span className="font-mono text-[11px]">{mappingLabel(indicator)}</span>
                 ) : (
                   <Badge tone="warning">Not mapped</Badge>
                 )}

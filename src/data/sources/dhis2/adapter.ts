@@ -8,6 +8,7 @@ import {
   type ReportingRecord,
 } from '@/core/model/types';
 import type { ConnectionResult, FetchRequest, SourceAdapter } from '../port';
+import type { IndicatorDefinition } from '@/core/registry/types';
 import { Dhis2Client, Dhis2Error, type Dhis2Config } from './client';
 import { env } from '@/lib/env';
 
@@ -149,6 +150,30 @@ function combine(parts: Observation[]): Observation | null {
   };
 }
 
+/** Component UIDs of a numerator or denominator written as "uidA+uidB". */
+function components(expression: string | null): string[] {
+  return (expression ?? '').split('+').map((part) => part.trim()).filter(Boolean);
+}
+
+/** The multiplier an indicator's unit implies for numerator ÷ denominator. */
+function unitFactor(unit: IndicatorDefinition['unit']): number {
+  if (unit === 'PERCENT') return 100;
+  if (unit === 'RATE_PER_1000') return 1000;
+  if (unit === 'RATE_PER_100000') return 100000;
+  return 1;
+}
+
+/**
+ * An indicator is fetched either as one DHIS2 indicator or data element
+ * (`source.dx`), or, where DHIS2 has no usable indicator, calculated here
+ * from data elements (`source.numeratorDx` ÷ `source.denominatorDx`, each one
+ * or more UIDs joined with "+").
+ */
+function isCalculated(indicator: IndicatorDefinition): boolean {
+  return !indicator.source.dx && components(indicator.source.numeratorDx).length > 0 &&
+    components(indicator.source.denominatorDx).length > 0;
+}
+
 /**
  * Maps the DHIS2 Web API onto the canonical model.
  *
@@ -277,7 +302,9 @@ export class Dhis2Adapter implements SourceAdapter {
    * view them — and are computed from the roots with `combine` instead.
    */
   async fetchObservations(request: FetchRequest): Promise<Observation[]> {
-    const mapped = request.indicators.filter((indicator) => indicator.source.dx);
+    const direct = request.indicators.filter((indicator) => indicator.source.dx);
+    const calculated = request.indicators.filter(isCalculated);
+    const mapped = [...direct, ...calculated];
     if (mapped.length === 0) {
       throw new Dhis2Error(
         'No indicators in the registry are mapped to DHIS2 data. Set a DHIS2 identifier for each indicator in Admin → Indicators before synchronising.',
@@ -286,7 +313,16 @@ export class Dhis2Adapter implements SourceAdapter {
       );
     }
 
-    const byDx = new Map(mapped.map((indicator) => [indicator.source.dx as string, indicator]));
+    const byDx = new Map(direct.map((indicator) => [indicator.source.dx as string, indicator]));
+    const componentIds = new Set(
+      calculated.flatMap((indicator) => [
+        ...components(indicator.source.numeratorDx),
+        ...components(indicator.source.denominatorDx),
+      ]),
+    );
+    const dxIds = [...new Set([...byDx.keys(), ...componentIds])];
+    /** Component values, keyed `uid|orgUnit|period`, for calculated indicators. */
+    const raw = new Map<string, number>();
     const roots = await this.scopeRoots();
     const rootUnits = request.orgUnits.filter((unit) => roots.includes(unit.id));
     const rootDepth = Math.min(...rootUnits.map((unit) => unit.path.length));
@@ -320,7 +356,7 @@ export class Dhis2Adapter implements SourceAdapter {
     for (const level of levels) {
       for (const periods of periodChunks) {
         const response = await this.client.analytics({
-          dx: [...byDx.keys()],
+          dx: dxIds,
           pe: periods.map((period) => period.id),
           ou: roots,
           level,
@@ -339,10 +375,11 @@ export class Dhis2Adapter implements SourceAdapter {
         const denominatorIndex = columnIndex.get('denominator');
 
         for (const row of response.rows) {
-          const indicator = byDx.get(row[dxIndex]);
-          if (!indicator) continue;
           const value = parseCell(row[valueIndex]);
           if (value === null) continue;
+          if (componentIds.has(row[dxIndex])) raw.set(`${row[dxIndex]}|${row[ouIndex]}|${row[peIndex]}`, value);
+          const indicator = byDx.get(row[dxIndex]);
+          if (!indicator) continue;
           observations.push({
             indicatorId: indicator.id,
             orgUnitId: row[ouIndex],
@@ -353,6 +390,32 @@ export class Dhis2Adapter implements SourceAdapter {
             disaggregation: null,
           });
         }
+      }
+    }
+
+    // Calculated indicators: numerator ÷ denominator per unit and period. A
+    // missing numerator part counts as zero only when another part reported;
+    // with no numerator at all, or no denominator, the value stays absent.
+    const cells = new Set([...raw.keys()].map((key) => key.slice(key.indexOf('|') + 1)));
+    for (const indicator of calculated) {
+      const numeratorParts = components(indicator.source.numeratorDx);
+      const denominatorParts = components(indicator.source.denominatorDx);
+      for (const cell of cells) {
+        const numeratorValues = numeratorParts.map((uid) => raw.get(`${uid}|${cell}`));
+        if (numeratorValues.every((value) => value === undefined)) continue;
+        const denominator = denominatorParts.reduce((sum, uid) => sum + (raw.get(`${uid}|${cell}`) ?? 0), 0);
+        if (denominator <= 0) continue;
+        const numerator = numeratorValues.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+        const [orgUnitId, periodId] = cell.split('|');
+        observations.push({
+          indicatorId: indicator.id,
+          orgUnitId,
+          periodId,
+          value: (numerator / denominator) * unitFactor(indicator.unit),
+          numerator,
+          denominator,
+          disaggregation: null,
+        });
       }
     }
 

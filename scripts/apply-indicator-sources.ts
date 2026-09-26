@@ -6,7 +6,9 @@
  * authoritative. When the mappings in the config change — for example on
  * moving to a different DHIS2 instance, whose UIDs do not transfer — this brings
  * an existing installation in line without touching targets, scoring or any
- * other field an administrator may have edited. Run `npm run sync` afterwards.
+ * other field an administrator may have edited, except the description: when a
+ * mapping changes, what the indicator measures may change with it, so the
+ * description is updated alongside. Run `npm run sync` afterwards.
  */
 import { INDICATORS } from '../src/config/indicators';
 import { getIndicator, saveIndicator, seedRegistryIfEmpty } from '../src/data/repositories/registry';
@@ -22,10 +24,12 @@ async function main() {
       console.log(`added    ${configured.id}`);
       continue;
     }
-    const before = `${stored.source.dx ?? '—'} / ${stored.source.datasetId ?? '—'}`;
-    const after = `${configured.source.dx ?? '—'} / ${configured.source.datasetId ?? '—'}`;
+    const describe = (source: typeof configured.source) =>
+      `${source.dx ?? (source.numeratorDx ? `${source.numeratorDx} ÷ ${source.denominatorDx}` : '—')} / ${source.datasetId ?? '—'}`;
+    const before = describe(stored.source);
+    const after = describe(configured.source);
     if (before === after) continue;
-    await saveIndicator({ ...stored, source: configured.source });
+    await saveIndicator({ ...stored, source: configured.source, description: configured.description });
     console.log(`updated  ${configured.id}: ${before} → ${after}`);
   }
 }

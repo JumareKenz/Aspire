@@ -10,6 +10,7 @@ import { TrendIndicator } from '../primitives/Trend';
 import { Badge } from '../primitives/Badge';
 import { ErrorState, LoadingBlock } from '../primitives/States';
 import { Td, Th, TableWrap, Tr } from '../primitives/Table';
+import { isMapped } from '@/core/registry/mapping';
 
 export interface IndicatorDrawerTarget {
   indicatorId: string;
@@ -130,7 +131,7 @@ export function IndicatorDrawer({
             <Badge tone="neutral">
               {detail.indicator.directionality === 'HIGHER_IS_BETTER' ? 'Higher is better' : 'Lower is better'}
             </Badge>
-            {detail.indicator.source.dx === null ? (
+            {!isMapped(detail.indicator) ? (
               <Badge tone="warning" title="No DHIS2 identifier has been mapped for this indicator.">
                 Not mapped to DHIS2
               </Badge>

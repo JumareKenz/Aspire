@@ -11,7 +11,7 @@ import {
 } from '../repositories/observations';
 import { replaceFindings } from '../repositories/findings';
 import { finishSyncRun, startSyncRun } from '../repositories/syncRuns';
-import { getDataMode, setDataMode, setLastSyncAt } from '../repositories/settings';
+import { getDataMode, setDataMode, setLastSyncAt, setLatestDataPeriod } from '../repositories/settings';
 import { getSourceAdapter } from '../sources';
 import { analysisPeriods } from './periods';
 
@@ -73,6 +73,8 @@ export async function runSync(): Promise<SyncResult> {
 
     await setDataMode(adapter.mode);
     await setLastSyncAt(new Date().toISOString());
+    const latest = latestPeriodWithData(orgUnits, observations, periods);
+    if (latest) await setLatestDataPeriod(latest);
     await finishSyncRun(runId, {
       status: 'SUCCESS',
       orgUnits: orgUnits.length,
@@ -180,4 +182,25 @@ function getSeriesForUnitsFrom(
     if (series) series[position] = observation.value;
   }
   return result;
+}
+
+/**
+ * The latest period the top of the hierarchy has any value for. Pages open on
+ * it by default, so a source that lags the calendar does not open every page
+ * on an empty quarter.
+ */
+function latestPeriodWithData(
+  orgUnits: OrgUnit[],
+  observations: Observation[],
+  periods: ReturnType<typeof analysisPeriods>,
+): string | null {
+  const root = orgUnits.find((unit) => unit.parentId === null);
+  if (!root) return null;
+  const withData = new Set(
+    observations.filter((observation) => observation.orgUnitId === root.id).map((observation) => observation.periodId),
+  );
+  for (let i = periods.length - 1; i >= 0; i -= 1) {
+    if (withData.has(periods[i].id)) return periods[i].id;
+  }
+  return null;
 }

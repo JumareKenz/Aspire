@@ -5,7 +5,7 @@ import { assertOrgUnitInScope, requireUser } from '@/auth/server';
 import { generateReport, REPORT_TYPES, type ReportType } from '@/services/reports';
 import { reportTypesFor } from '@/auth/experience';
 import { accessibleStates } from '@/services/states';
-import { latestCompletePeriodId } from '@/data/sync/periods';
+import { defaultPeriodId } from '@/services/scorecards';
 import { recordAudit } from '@/data/repositories/audit';
 import type { SearchParams } from '@/services/context';
 import { PrintButton } from './PrintButton';
@@ -27,7 +27,7 @@ export default async function ReportViewPage({
 
   const type = first(params.type) as ReportType | undefined;
   const orgUnitId = first(params.orgUnit);
-  const periodId = first(params.period) ?? latestCompletePeriodId();
+  const periodId = first(params.period) ?? (await defaultPeriodId());
   if (!type || !REPORT_TYPES.includes(type) || !orgUnitId) notFound();
   const permittedTypes = reportTypesFor(user, (await accessibleStates(user)).length);
   if (!permittedTypes.includes(type)) notFound();

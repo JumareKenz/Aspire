@@ -3,7 +3,7 @@ import { getOrgUnit } from '@/data/repositories/orgUnits';
 import { listUsers } from '@/data/repositories/users';
 import { getScorecard } from './scorecards';
 import { round } from '@/core/analytics/stats';
-import { latestCompletePeriodId } from '@/data/sync/periods';
+import { defaultPeriodId } from '@/services/scorecards';
 
 export interface ActionView extends ActionItem {
   orgUnitName: string | null;
@@ -20,7 +20,7 @@ export interface ActionView extends ActionItem {
 export async function getActionViews(scopeIds: string[]): Promise<ActionView[]> {
   const [userList, actions] = await Promise.all([listUsers(), listActions({ orgUnitIds: scopeIds })]);
   const users = new Map(userList.map((user) => [user.id, user.name]));
-  const currentPeriod = latestCompletePeriodId();
+  const currentPeriod = await defaultPeriodId();
 
   return Promise.all(actions.map(async (action) => {
     let scoreSinceRaised: ActionView['scoreSinceRaised'] = null;

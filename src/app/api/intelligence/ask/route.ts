@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { answerQuestion } from '@/intelligence/answer';
 import { resolveScope } from '@/auth/server';
-import { latestCompletePeriodId } from '@/data/sync/periods';
+import { defaultPeriodId } from '@/services/scorecards';
 import { ok, withUser } from '@/lib/api';
 
 const schema = z.object({
@@ -23,7 +23,7 @@ export const POST = withUser(async (user, request) => {
   const answer = await answerQuestion(body.question, user, {
     orgUnitId:
       body.orgUnitId && scope.ids.includes(body.orgUnitId) ? body.orgUnitId : scope.root.id,
-    periodId: body.periodId ?? latestCompletePeriodId(),
+    periodId: body.periodId ?? (await defaultPeriodId()),
   });
 
   return ok(answer);

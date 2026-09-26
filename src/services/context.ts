@@ -5,6 +5,7 @@ import { requireUser, resolveScope } from '@/auth/server';
 import type { User } from '@/data/repositories/users';
 import { getOrgUnit } from '@/data/repositories/orgUnits';
 import { analysisPeriods } from '@/data/sync/periods';
+import { defaultPeriodId } from './scorecards';
 import type { ScopeOption, PeriodOption } from '@/design/patterns/ScopeBar';
 
 export interface PageContext {
@@ -47,7 +48,8 @@ export async function resolvePageContext(searchParams: SearchParams): Promise<Pa
 
   const requestedPeriod = first(searchParams.period);
   const periodMatch = periods.find((period) => period.id === requestedPeriod);
-  const period = periodMatch ?? periods[periods.length - 1];
+  const fallbackId = await defaultPeriodId();
+  const period = periodMatch ?? periods.find((candidate) => candidate.id === fallbackId) ?? periods[periods.length - 1];
 
   const requestedOrgUnit = first(searchParams.orgUnit);
   const candidate = requestedOrgUnit ? await getOrgUnit(requestedOrgUnit) : null;

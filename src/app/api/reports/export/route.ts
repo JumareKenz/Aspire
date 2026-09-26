@@ -1,7 +1,7 @@
 import { assertOrgUnitInScope } from '@/auth/server';
 import { generateReport, REPORT_TYPES, type ReportType } from '@/services/reports';
 import { recordAudit } from '@/data/repositories/audit';
-import { latestCompletePeriodId } from '@/data/sync/periods';
+import { defaultPeriodId } from '@/services/scorecards';
 import { ApiError, query, withUser } from '@/lib/api';
 import { reportTypesFor } from '@/auth/experience';
 import { accessibleStates } from '@/services/states';
@@ -24,7 +24,7 @@ export const GET = withUser(async (user, request) => {
   const params = query(request);
   const type = params.get('type') as ReportType | null;
   const orgUnitId = params.get('orgUnit');
-  const periodId = params.get('period') ?? latestCompletePeriodId();
+  const periodId = params.get('period') ?? (await defaultPeriodId());
 
   if (!type || !REPORT_TYPES.includes(type)) throw new ApiError('Unknown report type.', 400);
   if (!orgUnitId) throw new ApiError('orgUnit is required.', 400);

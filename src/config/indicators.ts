@@ -61,11 +61,12 @@ export const INDICATORS: IndicatorDefinition[] = [
     name: 'Antenatal care, early first contact',
     shortName: 'ANC early contact',
     description:
-      'Pregnant women reporting for antenatal care before 20 weeks, as a share of expected pregnancies.',
+      'First antenatal visits made before 20 weeks of pregnancy, as a share of all first antenatal visits.',
     domainId: 'maternal-health',
     defaultTarget: 75,
-    // "Antenatal 1st visits before 20 weeks rate" (xIvjr5gGVpp) exists on the
-    // national instance but returns no data for either state.
+    // "Antenatal 1st visits before 20 weeks rate". The denominator is first
+    // visits, not expected pregnancies, so it measures timing, not coverage.
+    source: dhis2('xIvjr5gGVpp'),
   }),
   percentIndicator({
     id: 'skilled-birth-attendance',
@@ -114,10 +115,17 @@ export const INDICATORS: IndicatorDefinition[] = [
     defaultTarget: 10,
     scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
     quality: { min: 0, max: 200, numeratorMustNotExceedDenominator: false, maxPeriodChangePct: 80 },
-    // "% still births" (VgvLo7Bsv4d) on the national instance has its whole
-    // formula in the numerator and 100 as the denominator, so its values are
-    // not a rate; "Fresh Still Birth Rate" (kFpeaNR08cY) has almost no data.
-    source: { system: 'DHIS2', dx: null, datasetId: NHMIS, numeratorDx: null, denominatorDx: null },
+    // Calculated here: "% still births" (VgvLo7Bsv4d) on the national instance
+    // has its whole formula in the numerator and 100 as the denominator, so its
+    // values are not a rate. Still births (FHmQPDbgyYZ) per 1,000 total births,
+    // i.e. live births (YjZiHDKMWCJ) plus still births.
+    source: {
+      system: 'DHIS2',
+      dx: null,
+      datasetId: NHMIS,
+      numeratorDx: 'FHmQPDbgyYZ',
+      denominatorDx: 'YjZiHDKMWCJ+FHmQPDbgyYZ',
+    },
     active: true,
   },
 
@@ -125,11 +133,15 @@ export const INDICATORS: IndicatorDefinition[] = [
     id: 'mcpr',
     name: 'Modern contraceptive prevalence rate',
     shortName: 'mCPR',
-    description: 'Women of reproductive age using a modern contraceptive method.',
+    description:
+      'Women aged 15–49 recorded by facilities as using a modern contraceptive method, as a share of the estimated population of women aged 15–49.',
     domainId: 'family-planning',
     defaultTarget: 35,
-    // Survey-based. The instance's "Contraceptive Prevalence Rate" divides by a
-    // population estimate and returns values near zero.
+    // Facility-reported, not the survey measure. The denominator is a
+    // population estimate, so a quarter with only some months reported (such
+    // as 2026Q1 on staging) reads low. The instance's "Contraceptive
+    // Prevalence Rate" indicators return values near zero and are not used.
+    source: dhis2('M8XUQAbJ3us'),
   }),
   {
     id: 'fp-new-acceptors',
@@ -186,6 +198,19 @@ export const INDICATORS: IndicatorDefinition[] = [
     // of all ANC attendance, not coverage of adolescent pregnancies.
     source: dhis2('vmKtSSkTHGh'),
   }),
+  percentIndicator({
+    id: 'adolescent-deliveries',
+    name: 'Deliveries by adolescent mothers',
+    shortName: 'Adolescent deliveries',
+    description: 'Deliveries by mothers aged 10–19, as a share of all deliveries. A lower share is better.',
+    domainId: 'adolescent-srhr',
+    directionality: 'LOWER_IS_BETTER',
+    defaultTarget: 10,
+    // LINEAR is direction-agnostic: a ceiling below the floor scores a falling
+    // share highly.
+    scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
+    source: dhis2('ZqWkiIAplRx'),
+  }),
 
   percentIndicator({
     id: 'gbv-clinical-care',
@@ -222,9 +247,22 @@ export const INDICATORS: IndicatorDefinition[] = [
     id: 'sti-management',
     name: 'STI syndromic management',
     shortName: 'STI management',
-    description: 'Presenting STI cases managed according to the national syndromic protocol.',
+    description:
+      'Pregnant women testing positive for syphilis at antenatal care who were treated. Stands in for STI management until syndromic management is reported.',
     domainId: 'hiv-sti',
     defaultTarget: 75,
+    // Approximation: "Syphilis Treatment Coverage" in ANC. No syndromic
+    // management figure is reported for either state.
+    source: dhis2('pwsUeH0dVl6'),
+  }),
+  percentIndicator({
+    id: 'syphilis-testing-anc',
+    name: 'Syphilis testing in pregnancy',
+    shortName: 'Syphilis testing (ANC)',
+    description: 'Pregnant women tested for syphilis during antenatal care, as a share of first antenatal visits.',
+    domainId: 'hiv-sti',
+    defaultTarget: 90,
+    source: dhis2('UqrT850LB4s'),
   }),
 
   {

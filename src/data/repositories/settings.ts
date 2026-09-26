@@ -5,6 +5,7 @@ import { env } from '@/lib/env';
 const KEYS = {
   dataMode: 'data.mode',
   lastSyncAt: 'data.lastSyncAt',
+  latestDataPeriod: 'data.latestPeriod',
   dhis2BaseUrl: 'dhis2.baseUrl',
 } as const;
 
@@ -47,3 +48,12 @@ export async function getDhis2BaseUrl(): Promise<string | null> {
 }
 
 export const SETTING_KEYS = KEYS;
+
+/** The latest period the top of the hierarchy has data for, as of the last sync. */
+export async function getLatestDataPeriod(): Promise<string | null> {
+  return getSetting(KEYS.latestDataPeriod);
+}
+
+export async function setLatestDataPeriod(periodId: string): Promise<void> {
+  await setSetting(KEYS.latestDataPeriod, periodId);
+}

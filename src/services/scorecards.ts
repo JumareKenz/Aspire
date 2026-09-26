@@ -12,7 +12,9 @@ import {
 } from '@/data/repositories/observations';
 import { listFindings } from '@/data/repositories/findings';
 import { periodRange } from '@/core/model/periods';
-import { HISTORY_PERIODS, latestCompletePeriodId } from '@/data/sync/periods';
+import { HISTORY_PERIODS, analysisPeriods, latestCompletePeriodId } from '@/data/sync/periods';
+import { getLatestDataPeriod } from '@/data/repositories/settings';
+import { env } from '@/lib/env';
 
 export interface ScorecardOptions {
   /** Number of historical periods to include in the trend window. */
@@ -141,8 +143,22 @@ export async function getChildScorecards(
   );
 }
 
-/** The default reporting period: the most recent quarter that has fully elapsed. */
-export function defaultPeriodId(): string {
+/**
+ * The period pages open on when none is chosen.
+ *
+ * `ASPIRE_DEFAULT_PERIOD` pins it (e.g. to the last quarter reported in full).
+ * Otherwise it is the latest quarter the top of the hierarchy has data for, as
+ * recorded by the last sync: a source that lags the calendar, as the DHIS2
+ * staging server does, would otherwise open every page on an empty quarter.
+ * Either value is used only when it falls inside the analysis window; failing
+ * both, it is the most recent quarter that has fully elapsed.
+ */
+export async function defaultPeriodId(): Promise<string> {
+  const window = new Set(analysisPeriods().map((period) => period.id));
+  const pinned = env('ASPIRE_DEFAULT_PERIOD');
+  if (pinned && window.has(pinned)) return pinned;
+  const latest = await getLatestDataPeriod();
+  if (latest && window.has(latest)) return latest;
   return latestCompletePeriodId();
 }
 

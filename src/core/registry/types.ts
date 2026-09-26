@@ -70,6 +70,12 @@ export interface IndicatorDefinition {
     dx: string | null;
     /** DHIS2 dataset UID that carries this indicator, for completeness checks. */
     datasetId: string | null;
+    /**
+     * For an indicator DHIS2 does not define usably: data element UIDs whose
+     * values give the numerator and denominator, each one or more UIDs joined
+     * with "+". Used only when `dx` is null; the value is numerator ÷
+     * denominator scaled by the unit (×100 for PERCENT, ×1000 per thousand).
+     */
     numeratorDx: string | null;
     denominatorDx: string | null;
   };
