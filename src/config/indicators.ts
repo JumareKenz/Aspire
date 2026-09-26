@@ -131,6 +131,57 @@ export const INDICATORS: IndicatorDefinition[] = [
     },
     active: true,
   },
+  percentIndicator({
+    id: 'caesarean-section-rate',
+    name: 'Caesarean section rate',
+    shortName: 'Caesarean sections',
+    description:
+      'Deliveries by caesarean section, as a share of all deliveries. WHO treats 5–15% as the range where emergency obstetric care is accessible.',
+    domainId: 'maternal-health',
+    defaultTarget: 5,
+    disaggregations: [],
+    // Neither direction is simply better: too few caesareans signals poor
+    // access, too many signals overuse. Bands score 5–15% highest; the
+    // direction is set for trend arrows, since both states sit far below 5%.
+    scoring: {
+      kind: 'BANDS',
+      bands: [
+        { upTo: 1, score: 10 },
+        { upTo: 3, score: 40 },
+        { upTo: 5, score: 70 },
+        { upTo: 15, score: 100 },
+      ],
+      above: 60,
+    },
+    // Calculated: the caesarean option of "Deliveries" over all deliveries.
+    source: {
+      system: 'DHIS2',
+      dx: null,
+      datasetId: NHMIS,
+      numeratorDx: 'N70qtdTZ21W.lwoUMO6gkZ3',
+      denominatorDx: 'N70qtdTZ21W',
+    },
+  }),
+  percentIndicator({
+    id: 'low-birth-weight',
+    name: 'Low birth weight',
+    shortName: 'Low birth weight',
+    description: 'Live births weighing under 2.5 kg, as a share of all live births. A lower share is better.',
+    domainId: 'maternal-health',
+    directionality: 'LOWER_IS_BETTER',
+    defaultTarget: 10,
+    disaggregations: [],
+    scoring: { kind: 'LINEAR', floor: 30, ceiling: 0 },
+    // Calculated: "Live Births" is reported by sex and birth weight; the two
+    // under-2.5 kg options over the total.
+    source: {
+      system: 'DHIS2',
+      dx: null,
+      datasetId: NHMIS,
+      numeratorDx: 'YjZiHDKMWCJ.hE0EYluYY9M+YjZiHDKMWCJ.rYT1B3NrGPP',
+      denominatorDx: 'YjZiHDKMWCJ',
+    },
+  }),
 
   percentIndicator({
     id: 'mcpr',
@@ -256,6 +307,25 @@ export const INDICATORS: IndicatorDefinition[] = [
     // Approximation: cases referred for further treatment, per case seen. The
     // instance records referrals made, not referrals completed.
     source: dhis2('SR6GHHosrlQ'),
+  }),
+  percentIndicator({
+    id: 'gbv-care-adolescents',
+    name: 'GBV care for adolescent survivors',
+    shortName: 'Adolescent GBV care',
+    description: 'GBV survivors under 20 who received post-GBV care, as a share of survivors under 20 seen.',
+    domainId: 'gbv-response',
+    defaultTarget: 80,
+    disaggregations: [],
+    // Calculated from the under-20 options (female and male) of "Post GBV
+    // Care Received" over "Gender based violence cases seen". Counts are
+    // small (about 100–300 a quarter per state), so quarters swing.
+    source: {
+      system: 'DHIS2',
+      dx: null,
+      datasetId: NHMIS,
+      numeratorDx: 'GRAtfUqgaW4.FUDO1t9cO92+GRAtfUqgaW4.mz0x0bs3nUN',
+      denominatorDx: 'gCnWh1LU6qg.FUDO1t9cO92+gCnWh1LU6qg.mz0x0bs3nUN',
+    },
   }),
 
   percentIndicator({
