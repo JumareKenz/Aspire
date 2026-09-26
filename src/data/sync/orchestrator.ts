@@ -68,12 +68,15 @@ export async function runSync(): Promise<SyncResult> {
       })),
     );
 
-    const findings = scanQuality(orgUnits, observations, reporting, periods, indicators);
+    // Breakdown rows are counts, not indicator values, so validity rules
+    // (a percentage's 0-100 range, say) do not apply to them.
+    const totals = observations.filter((observation) => !observation.disaggregation);
+    const findings = scanQuality(orgUnits, totals, reporting, periods, indicators);
     await replaceFindings(findings);
 
     await setDataMode(adapter.mode);
     await setLastSyncAt(new Date().toISOString());
-    const latest = latestPeriodWithData(orgUnits, observations, periods);
+    const latest = latestPeriodWithData(orgUnits, totals, periods);
     if (latest) await setLatestDataPeriod(latest);
     await finishSyncRun(runId, {
       status: 'SUCCESS',

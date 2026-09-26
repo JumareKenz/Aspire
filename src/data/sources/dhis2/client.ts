@@ -195,6 +195,8 @@ export class Dhis2Client {
     ou: string[];
     level?: number;
     includeNumDen?: boolean;
+    /** Extra dimensions, e.g. a category UID to split values by its options. */
+    dimensions?: string[];
   }): Promise<AnalyticsResponse> {
     const ouDimension = params.level ? [...params.ou, `LEVEL-${params.level}`] : params.ou;
     return this.request<AnalyticsResponse>('analytics', {
@@ -202,6 +204,7 @@ export class Dhis2Client {
         `dx:${params.dx.join(';')}`,
         `pe:${params.pe.join(';')}`,
         `ou:${ouDimension.join(';')}`,
+        ...(params.dimensions ?? []),
       ],
       includeNumDen: String(params.includeNumDen ?? true),
       skipMeta: 'false',

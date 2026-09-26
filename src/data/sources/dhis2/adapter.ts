@@ -70,6 +70,28 @@ function cleanName(name: string): string {
 /** Analytics requests are split by period so no single query outlives the timeout. */
 const PERIODS_PER_REQUEST = 4;
 
+/**
+ * Analytics requests in flight at once. A sync must finish inside one
+ * serverless request, and one-at-a-time requests to a distant instance spend
+ * most of that budget waiting; a handful in parallel stays polite to DHIS2.
+ */
+const CONCURRENT_REQUESTS = 4;
+
+/** Runs `task` over `items` with at most `limit` in flight; results keep input order. */
+async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await task(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /** Start date of a DHIS2 period id, for the period types the platform consumes. */
 function periodStart(id: string): string | null {
   const monthly = /^(\d{4})(\d{2})$/.exec(id);
@@ -353,43 +375,43 @@ export class Dhis2Adapter implements SourceAdapter {
     }
 
     const observations: Observation[] = [];
-    for (const level of levels) {
-      for (const periods of periodChunks) {
-        const response = await this.client.analytics({
-          dx: dxIds,
-          pe: periods.map((period) => period.id),
-          ou: roots,
-          level,
-          includeNumDen: true,
+    const requests = levels.flatMap((level) => periodChunks.map((periods) => ({ level, periods })));
+    const responses = await mapLimit(requests, CONCURRENT_REQUESTS, ({ level, periods }) =>
+      this.client.analytics({
+        dx: dxIds,
+        pe: periods.map((period) => period.id),
+        ou: roots,
+        level,
+        includeNumDen: true,
+      }),
+    );
+    for (const response of responses) {
+      const columnIndex = new Map(response.headers.map((header, index) => [header.name, index]));
+      const dxIndex = columnIndex.get('dx');
+      const peIndex = columnIndex.get('pe');
+      const ouIndex = columnIndex.get('ou');
+      const valueIndex = columnIndex.get('value');
+      if (dxIndex === undefined || peIndex === undefined || ouIndex === undefined || valueIndex === undefined) {
+        continue;
+      }
+      const numeratorIndex = columnIndex.get('numerator');
+      const denominatorIndex = columnIndex.get('denominator');
+
+      for (const row of response.rows) {
+        const value = parseCell(row[valueIndex]);
+        if (value === null) continue;
+        if (componentIds.has(row[dxIndex])) raw.set(`${row[dxIndex]}|${row[ouIndex]}|${row[peIndex]}`, value);
+        const indicator = byDx.get(row[dxIndex]);
+        if (!indicator) continue;
+        observations.push({
+          indicatorId: indicator.id,
+          orgUnitId: row[ouIndex],
+          periodId: row[peIndex],
+          value,
+          numerator: numeratorIndex === undefined ? null : parseCell(row[numeratorIndex]),
+          denominator: denominatorIndex === undefined ? null : parseCell(row[denominatorIndex]),
+          disaggregation: null,
         });
-
-        const columnIndex = new Map(response.headers.map((header, index) => [header.name, index]));
-        const dxIndex = columnIndex.get('dx');
-        const peIndex = columnIndex.get('pe');
-        const ouIndex = columnIndex.get('ou');
-        const valueIndex = columnIndex.get('value');
-        if (dxIndex === undefined || peIndex === undefined || ouIndex === undefined || valueIndex === undefined) {
-          continue;
-        }
-        const numeratorIndex = columnIndex.get('numerator');
-        const denominatorIndex = columnIndex.get('denominator');
-
-        for (const row of response.rows) {
-          const value = parseCell(row[valueIndex]);
-          if (value === null) continue;
-          if (componentIds.has(row[dxIndex])) raw.set(`${row[dxIndex]}|${row[ouIndex]}|${row[peIndex]}`, value);
-          const indicator = byDx.get(row[dxIndex]);
-          if (!indicator) continue;
-          observations.push({
-            indicatorId: indicator.id,
-            orgUnitId: row[ouIndex],
-            periodId: row[peIndex],
-            value,
-            numerator: numeratorIndex === undefined ? null : parseCell(row[numeratorIndex]),
-            denominator: denominatorIndex === undefined ? null : parseCell(row[denominatorIndex]),
-            disaggregation: null,
-          });
-        }
       }
     }
 
@@ -419,31 +441,124 @@ export class Dhis2Adapter implements SourceAdapter {
       }
     }
 
+    // Breakdowns: a count split by one category, at the state and LGA
+    // levels only. Wards and facilities would multiply the rows many times
+    // over for splits nobody reads at that depth.
+    const breakdownLevels = Object.entries(levelMap)
+      .filter(([dhis2Level, canonical]) =>
+        (canonical === 'STATE' || canonical === 'LGA') && Number(dhis2Level) >= rootDhis2Level)
+      .map(([dhis2Level]) => Number(dhis2Level));
+    observations.push(
+      ...(await this.fetchBreakdowns(request.indicators, roots, breakdownLevels, periodChunks)),
+    );
+
     // Units above the roots: each is computed from the roots beneath it, and
     // only where every one of those roots has a value — a federal figure built
     // from one state would silently present that state as the whole.
     const ancestors = request.orgUnits.filter((unit) => unit.path.length < rootDepth);
     const rootIdSet = new Set(roots);
     const rootObservations = new Map<string, Observation>();
+    const splits = new Map<string, Set<string>>();
     for (const observation of observations) {
       if (rootIdSet.has(observation.orgUnitId)) {
+        const split = observation.disaggregation ?? '';
         rootObservations.set(
-          `${observation.orgUnitId}|${observation.indicatorId}|${observation.periodId}`,
+          `${observation.orgUnitId}|${observation.indicatorId}|${observation.periodId}|${split}`,
           observation,
         );
+        if (!splits.has(observation.indicatorId)) splits.set(observation.indicatorId, new Set());
+        splits.get(observation.indicatorId)!.add(split);
       }
     }
     for (const ancestor of ancestors) {
       const beneath = rootUnits.filter((unit) => unit.path.includes(ancestor.id));
       if (beneath.length === 0) continue;
       for (const indicator of mapped) {
-        for (const period of request.periods) {
-          const parts = beneath.map((unit) =>
-            rootObservations.get(`${unit.id}|${indicator.id}|${period.id}`),
-          );
-          if (parts.some((part) => part === undefined)) continue;
-          const combined = combine(parts as Observation[]);
-          if (combined) observations.push({ ...combined, orgUnitId: ancestor.id });
+        for (const split of splits.get(indicator.id) ?? []) {
+          for (const period of request.periods) {
+            const parts = beneath.map((unit) =>
+              rootObservations.get(`${unit.id}|${indicator.id}|${period.id}|${split}`),
+            );
+            if (parts.some((part) => part === undefined)) continue;
+            const combined = combine(parts as Observation[]);
+            if (combined) observations.push({ ...combined, orgUnitId: ancestor.id });
+          }
+        }
+      }
+    }
+    return observations;
+  }
+
+  /**
+   * Counts split by a category, for indicators that declare a breakdown. Each
+   * becomes an observation whose `disaggregation` is "<label>:<option>", e.g.
+   * "Sex:Female". They are counts of what `breakdown.counts` names, not values
+   * of the indicator, and are kept out of scoring and the quality scan.
+   */
+  private async fetchBreakdowns(
+    indicators: IndicatorDefinition[],
+    roots: string[],
+    levels: number[],
+    periodChunks: Period[][],
+  ): Promise<Observation[]> {
+    const withBreakdown = indicators.filter((indicator) => indicator.source.breakdown);
+    const observations: Observation[] = [];
+    // One query per distinct (data element, category), shared by every
+    // indicator that splits the same count.
+    const groups = new Map<string, IndicatorDefinition[]>();
+    for (const indicator of withBreakdown) {
+      const { dx, category } = indicator.source.breakdown!;
+      const key = `${dx}|${category}`;
+      groups.set(key, [...(groups.get(key) ?? []), indicator]);
+    }
+    const requests = [...groups].flatMap(([key, members]) =>
+      levels.flatMap((level) => periodChunks.map((periods) => ({ key, members, level, periods }))),
+    );
+    const responses = await mapLimit(requests, CONCURRENT_REQUESTS, async ({ key, level, periods }) => {
+      const [dx, category] = key.split('|');
+      try {
+        return await this.client.analytics({
+          dx: [dx],
+          pe: periods.map((period) => period.id),
+          ou: roots,
+          level,
+          includeNumDen: false,
+          dimensions: [category],
+        });
+      } catch (error) {
+        // A breakdown is supplementary: one that DHIS2 refuses (a category
+        // that is not a data dimension, say) must not fail the whole sync.
+        if (error instanceof Dhis2Error) return null;
+        throw error;
+      }
+    });
+    for (const [index, response] of responses.entries()) {
+      const { key, members } = requests[index];
+      const category = key.split('|')[1];
+      if (!response) continue;
+      const columns = new Map(response.headers.map((header, index) => [header.name, index]));
+      const optionIndex = columns.get(category);
+      const peIndex = columns.get('pe');
+      const ouIndex = columns.get('ou');
+      const valueIndex = columns.get('value');
+      if (optionIndex === undefined || peIndex === undefined || ouIndex === undefined || valueIndex === undefined) {
+        continue;
+      }
+      const items = response.metaData?.items ?? {};
+      for (const row of response.rows) {
+        const value = parseCell(row[valueIndex]);
+        if (value === null) continue;
+        const option = (items[row[optionIndex]]?.name ?? row[optionIndex]).trim();
+        for (const indicator of members) {
+          observations.push({
+            indicatorId: indicator.id,
+            orgUnitId: row[ouIndex],
+            periodId: row[peIndex],
+            value,
+            numerator: null,
+            denominator: null,
+            disaggregation: `${indicator.source.breakdown!.label}:${option}`,
+          });
         }
       }
     }

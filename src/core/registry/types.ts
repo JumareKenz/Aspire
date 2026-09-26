@@ -78,6 +78,12 @@ export interface IndicatorDefinition {
      */
     numeratorDx: string | null;
     denominatorDx: string | null;
+    /**
+     * A count to show split by one DHIS2 category, e.g. new FP acceptors by
+     * sex. `dx` is a data element and `category` a data-dimension category on
+     * it; `counts` names what is counted, as shown beside the split.
+     */
+    breakdown?: { dx: string; category: string; label: string; counts: string };
   };
   active: boolean;
 }

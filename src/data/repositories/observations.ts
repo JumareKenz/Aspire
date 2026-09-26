@@ -61,6 +61,20 @@ export async function getObservations(
   return rows.map(toObservation);
 }
 
+/** Breakdown rows ("<label>:<option>" → count) for one indicator, unit and period. */
+export async function getBreakdown(
+  indicatorId: string,
+  orgUnitId: string,
+  periodId: string,
+): Promise<Array<{ key: string; value: number }>> {
+  const rows = await query<{ disaggregation: string; value: number }>(
+    `SELECT disaggregation, value FROM observations
+     WHERE indicator_id = $1 AND org_unit_id = $2 AND period_id = $3 AND disaggregation <> ''`,
+    [indicatorId, orgUnitId, periodId],
+  );
+  return rows.map((row) => ({ key: row.disaggregation, value: Number(row.value) }));
+}
+
 /**
  * Value series per indicator for one org unit, aligned to `periods` and oldest
  * first. Absent periods are null rather than dropped, so the scoring engine's

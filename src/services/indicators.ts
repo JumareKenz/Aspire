@@ -7,7 +7,7 @@ import { forecast, type ForecastResult } from '@/core/forecast/engine';
 import { futurePeriods, periodRange } from '@/core/model/periods';
 import { round } from '@/core/analytics/stats';
 import { getActiveMethodology, getIndicator } from '@/data/repositories/registry';
-import { getEffectiveTargets, getSeries, getSeriesForUnits } from '@/data/repositories/observations';
+import { getBreakdown, getEffectiveTargets, getSeries, getSeriesForUnits } from '@/data/repositories/observations';
 import { getOrgUnit, listChildren } from '@/data/repositories/orgUnits';
 import { listFindings } from '@/data/repositories/findings';
 import { HISTORY_PERIODS } from '@/data/sync/periods';
@@ -39,6 +39,12 @@ export interface IndicatorDetail {
   /** Children ranked by how far they moved, worst first. */
   contributors: ContributingUnit[];
   findings: QualityFinding[];
+  /** The indicator's count split by one category, for this unit and period. */
+  breakdown: {
+    label: string;
+    counts: string;
+    rows: Array<{ option: string; value: number; share: number }>;
+  } | null;
 }
 
 /**
@@ -142,5 +148,28 @@ export async function getIndicatorDetail(
         status: 'OPEN',
       })
     ).filter((finding) => finding.indicatorId === indicatorId),
+    breakdown: await breakdownFor(indicator, orgUnitId, periodId),
+  };
+}
+
+/** The breakdown rows as shares of their total, largest first; null when there are none. */
+async function breakdownFor(
+  indicator: IndicatorDefinition,
+  orgUnitId: string,
+  periodId: string,
+): Promise<IndicatorDetail['breakdown']> {
+  const spec = indicator.source.breakdown;
+  if (!spec) return null;
+  const rows = (await getBreakdown(indicator.id, orgUnitId, periodId))
+    .filter((row) => row.key.startsWith(`${spec.label}:`))
+    .map((row) => ({ option: row.key.slice(spec.label.length + 1), value: row.value }));
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (rows.length === 0 || total <= 0) return null;
+  return {
+    label: spec.label,
+    counts: spec.counts,
+    rows: rows
+      .map((row) => ({ ...row, share: round((row.value / total) * 100, 1) }))
+      .sort((a, b) => b.value - a.value),
   };
 }

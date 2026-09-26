@@ -76,7 +76,10 @@ export const INDICATORS: IndicatorDefinition[] = [
     domainId: 'maternal-health',
     defaultTarget: 80,
     // Skilled birth attendance divided by deliveries.
-    source: dhis2('Ly3HmUoHQEP'),
+    source: {
+      ...dhis2('Ly3HmUoHQEP'),
+      breakdown: { dx: 'N70qtdTZ21W', category: 'UAeKMPymbwQ', label: 'Delivery type', counts: 'deliveries' },
+    },
   }),
   percentIndicator({
     id: 'pnc-48h',
@@ -158,7 +161,10 @@ export const INDICATORS: IndicatorDefinition[] = [
     scoring: { kind: 'TARGET_RATIO', cap: 100 },
     quality: { min: 0, max: null, numeratorMustNotExceedDenominator: false, maxPeriodChangePct: 80 },
     // "New FP Acceptors" data element, summed.
-    source: dhis2('mvBO08ctlWw'),
+    source: {
+      ...dhis2('mvBO08ctlWw'),
+      breakdown: { dx: 'mvBO08ctlWw', category: 'qODDK4nTbu1', label: 'Sex', counts: 'new FP acceptors' },
+    },
     active: true,
   },
   percentIndicator({
@@ -168,16 +174,31 @@ export const INDICATORS: IndicatorDefinition[] = [
     description: 'Eligible clients receiving documented family planning counselling.',
     domainId: 'family-planning',
     defaultTarget: 85,
-    source: dhis2('XUCdlOc1j4G'),
+    source: {
+      ...dhis2('XUCdlOc1j4G'),
+      breakdown: { dx: 'c7T9iG1BVbo', category: 'qODDK4nTbu1', label: 'Sex', counts: 'FP clients counselled' },
+    },
   }),
 
   percentIndicator({
     id: 'adolescent-fp-uptake',
     name: 'Adolescent family planning uptake',
     shortName: 'Adolescent FP uptake',
-    description: 'Adolescents aged 15–19 receiving a modern contraceptive method.',
+    description:
+      'Women aged 10–19 using a modern contraceptive method, as a share of all women using one.',
     domainId: 'adolescent-srhr',
     defaultTarget: 25,
+    // Calculated: "Females using modern contraception" (HDmaff9ZJls) is
+    // reported by age, so the 10–14 and 15–19 groups are divided by the total.
+    // A share of users, not of the adolescent population.
+    source: {
+      system: 'DHIS2',
+      dx: null,
+      datasetId: NHMIS,
+      numeratorDx: 'HDmaff9ZJls.ynM4SNxMDEL+HDmaff9ZJls.pRCfLBr13Oo',
+      denominatorDx: 'HDmaff9ZJls',
+      breakdown: { dx: 'HDmaff9ZJls', category: 'MvPsnVLxFNu', label: 'Age', counts: 'women using modern contraception' },
+    },
   }),
   percentIndicator({
     id: 'youth-friendly-services',
@@ -196,7 +217,10 @@ export const INDICATORS: IndicatorDefinition[] = [
     defaultTarget: 65,
     // Approximation: "% ANC attendance by adolescents" is the adolescent share
     // of all ANC attendance, not coverage of adolescent pregnancies.
-    source: dhis2('vmKtSSkTHGh'),
+    source: {
+      ...dhis2('vmKtSSkTHGh'),
+      breakdown: { dx: 'SCDCoP6l9vz', category: 'CXvYfn3cGgx', label: 'Age', counts: 'ANC attendances' },
+    },
   }),
   percentIndicator({
     id: 'adolescent-deliveries',

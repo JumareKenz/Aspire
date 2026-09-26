@@ -151,6 +151,46 @@ export function IndicatorDrawer({
             />
           </section>
 
+          {detail.breakdown ? (
+            <section>
+              <h3 className="mb-2 text-[12px] font-semibold">
+                By {detail.breakdown.label.toLowerCase()}{' '}
+                <span className="font-normal text-[var(--text-tertiary)]">
+                  — {detail.breakdown.counts}, {detail.periodLabel}
+                </span>
+              </h3>
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>{detail.breakdown.label}</Th>
+                    <Th align="right">Count</Th>
+                    <Th align="right">Share</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.breakdown.rows.map((row) => (
+                    <Tr key={row.option}>
+                      <Td>{row.option}</Td>
+                      <Td align="right" className="numeric">
+                        {row.value.toLocaleString('en-GB')}
+                      </Td>
+                      <Td align="right" className="numeric">
+                        <span className="inline-flex items-center justify-end gap-2">
+                          <span
+                            aria-hidden="true"
+                            className="inline-block h-1.5 rounded-full bg-[var(--brand-500)]"
+                            style={{ width: `${Math.max(2, Math.round(row.share * 0.6))}px` }}
+                          />
+                          {row.share}%
+                        </span>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            </section>
+          ) : null}
+
           <section>
             <h3 className="mb-1 text-[12px] font-semibold">Outlook</h3>
             {detail.forecast.available ? (

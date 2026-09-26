@@ -164,7 +164,7 @@ describe('Dhis2Adapter', () => {
   function mappedOnly(dxById: Record<string, string>) {
     return INDICATORS.map((indicator) => ({
       ...indicator,
-      source: { ...indicator.source, dx: dxById[indicator.id] ?? null },
+      source: { ...indicator.source, dx: dxById[indicator.id] ?? null, breakdown: undefined },
     }));
   }
 
@@ -267,8 +267,8 @@ describe('Dhis2Adapter', () => {
       ...indicator,
       source:
         indicator.id === 'still-birth-rate'
-          ? { ...indicator.source, dx: null, numeratorDx: 'de-still', denominatorDx: 'de-live+de-still' }
-          : { ...indicator.source, dx: null, numeratorDx: null, denominatorDx: null },
+          ? { ...indicator.source, dx: null, numeratorDx: 'de-still', denominatorDx: 'de-live+de-still', breakdown: undefined }
+          : { ...indicator.source, dx: null, numeratorDx: null, denominatorDx: null, breakdown: undefined },
     }));
 
     const observations = await new Dhis2Adapter(config).fetchObservations({
@@ -290,6 +290,55 @@ describe('Dhis2Adapter', () => {
         disaggregation: null,
       },
     ]);
+  });
+
+  it('splits a count by a category and sums each option up to the federal tier', async () => {
+    vi.stubEnv('DHIS2_ROOT_ORG_UNITS', 'ou-ba,ou-so');
+    const national: OrgUnit[] = [
+      { id: 'ng', code: null, name: 'Federal Government', level: 'COUNTRY', parentId: null, path: ['ng'], centroid: null, active: true },
+      { id: 'ou-ba', code: null, name: 'Bauchi State', level: 'STATE', parentId: 'ng', path: ['ng', 'ou-ba'], centroid: null, active: true },
+      { id: 'ou-so', code: null, name: 'Sokoto State', level: 'STATE', parentId: 'ng', path: ['ng', 'ou-so'], centroid: null, active: true },
+    ];
+    mockFetch((raw) => {
+      const url = decodeURIComponent(raw);
+      if (!url.includes('dimension=cat-sex')) return { headers: analyticsHeaders, rows: [] };
+      return {
+        headers: [
+          { name: 'dx', column: 'Data', valueType: 'TEXT' },
+          { name: 'cat-sex', column: 'Sex', valueType: 'TEXT' },
+          { name: 'pe', column: 'Period', valueType: 'TEXT' },
+          { name: 'ou', column: 'Organisation unit', valueType: 'TEXT' },
+          { name: 'value', column: 'Value', valueType: 'NUMBER' },
+        ],
+        rows: [
+          ['de-fp', 'opt-f', '2026Q1', 'ou-ba', '900'],
+          ['de-fp', 'opt-m', '2026Q1', 'ou-ba', '100'],
+          ['de-fp', 'opt-f', '2026Q1', 'ou-so', '600'],
+        ],
+        metaData: { items: { 'opt-f': { name: 'Female' }, 'opt-m': { name: 'Male' } } },
+      };
+    });
+    const indicators = INDICATORS.map((indicator) => ({
+      ...indicator,
+      source:
+        indicator.id === 'fp-new-acceptors'
+          ? { ...indicator.source, dx: 'de-fp', breakdown: { dx: 'de-fp', category: 'cat-sex', label: 'Sex', counts: 'new FP acceptors' } }
+          : { ...indicator.source, dx: null, numeratorDx: null, denominatorDx: null, breakdown: undefined },
+    }));
+
+    const observations = await new Dhis2Adapter(config).fetchObservations({
+      orgUnits: national,
+      indicators,
+      periods: periodRange('2026Q1', 1),
+    });
+    const split = (unit: string, key: string) =>
+      observations.find((o) => o.orgUnitId === unit && o.disaggregation === key)?.value;
+
+    expect(split('ou-ba', 'Sex:Female')).toBe(900);
+    expect(split('ou-ba', 'Sex:Male')).toBe(100);
+    // Female is reported in both states, so it sums; Male only in one, so no federal figure.
+    expect(split('ng', 'Sex:Female')).toBe(1500);
+    expect(split('ng', 'Sex:Male')).toBeUndefined();
   });
 
   it('skips analytics rows whose value is not a number', async () => {
