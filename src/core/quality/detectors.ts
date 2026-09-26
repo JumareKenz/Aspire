@@ -401,11 +401,25 @@ export function runQualityScan(
   ctx: DetectorContext,
   thresholds: DetectorThresholds = DEFAULT_THRESHOLDS,
 ): QualityFinding[] {
+  // A numerator larger than its denominator also puts a percentage above 100,
+  // so the same fault would otherwise be reported twice. The consistency
+  // finding explains it better (it names both figures); the validity finding
+  // for that value is dropped and its reported value kept as evidence.
+  const consistency = detectConsistency(input.observations, ctx);
+  const explained = new Map(
+    consistency.map((finding) => [`${finding.orgUnitId}|${finding.indicatorId}|${finding.periodId}`, finding]),
+  );
+  const validity = detectValidity(input.observations, ctx).filter((finding) => {
+    const match = explained.get(`${finding.orgUnitId}|${finding.indicatorId}|${finding.periodId}`);
+    if (!match) return true;
+    match.evidence.push(...finding.evidence.filter((item) => item.label === 'Reported value'));
+    return false;
+  });
   const findings = [
     ...detectCompleteness(input.reporting, ctx, thresholds),
     ...detectTimeliness(input.reporting, ctx),
-    ...detectValidity(input.observations, ctx),
-    ...detectConsistency(input.observations, ctx),
+    ...validity,
+    ...consistency,
     ...detectStatisticalAnomalies(input.series, ctx, thresholds),
     ...detectTemporalAnomalies(input.series, ctx, thresholds),
     ...detectRepeatedValues(input.series, ctx, thresholds),

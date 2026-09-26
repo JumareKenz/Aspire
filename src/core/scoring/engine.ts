@@ -11,6 +11,7 @@ import type {
   ScorecardMethodology,
 } from './types';
 import type { OrgLevel } from '../model/types';
+import { isMapped } from '../registry/mapping';
 
 /**
  * Direction-aware achievement against target, expressed as a percentage.
@@ -228,6 +229,8 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
         carriedForward: entry.carried,
         unit: entry.indicator.unit,
         directionality: entry.indicator.directionality,
+        mapped: isMapped(entry.indicator),
+        targetProvisional: !entry.indicator.targetOfficial,
       };
     });
 

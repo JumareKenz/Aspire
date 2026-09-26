@@ -12,7 +12,8 @@ import { getChildScorecards, getScorecard } from './scorecards';
 
 export interface ReportingStatus {
   /** Proportion 0..100 of expected submissions received for the period. */
-  completeness: number;
+  /** Null when the source holds no reporting records. */
+  completeness: number | null;
   expected: number;
   received: number;
   /** Reporting units with nothing received at all. */
@@ -67,7 +68,7 @@ export async function getOverview(
   }
 
   const reporting: ReportingStatus = {
-    completeness: records.length === 0 ? 100 : Math.round((received / records.length) * 1000) / 10,
+    completeness: records.length === 0 ? null : Math.round((received / records.length) * 1000) / 10,
     expected: records.length,
     received,
     silentUnits: reportingUnits.filter((id) => !submittedByUnit.has(id)).length,

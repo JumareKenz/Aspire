@@ -2,6 +2,9 @@ import { runSync } from '@/data/sync/orchestrator';
 import { recordAudit } from '@/data/repositories/audit';
 import { ok, withUser } from '@/lib/api';
 
+/** A full sync runs inside this one request. */
+export const maxDuration = 300;
+
 /**
  * Runs a synchronisation on demand.
  *

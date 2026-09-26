@@ -222,9 +222,34 @@ describe('runQualityScan', () => {
     expect(findings[0].severity).toBe('HIGH');
     expect(rollup(findings).total).toBe(findings.length);
   });
+
+  it('reports a numerator above its denominator once, not also as an impossible value', () => {
+    const findings = runQualityScan(
+      {
+        observations: [
+          { indicatorId: 'ind-1', orgUnitId: 'lga-1', periodId: '2026Q2', value: 132, numerator: 144, denominator: 109, disaggregation: null },
+        ],
+        reporting: [],
+        series: [],
+      },
+      ctx,
+      DEFAULT_THRESHOLDS,
+    );
+    expect(findings.map((finding) => finding.dimension)).toEqual(['CONSISTENCY']);
+    expect(findings[0].evidence).toContainEqual({ label: 'Reported value', value: '132' });
+  });
 });
 
 describe('data confidence', () => {
+  it('treats a source with no reporting records as unknown completeness, not 100%', () => {
+    const confidence = computeDataConfidence({ reporting: [], findings: [], checkedValues: 40 });
+    expect(confidence.components.completeness).toBeNull();
+    expect(confidence.components.timeliness).toBeNull();
+    // Rests on the value checks alone, which found nothing.
+    expect(confidence.score).toBe(100);
+    expect(confidence.reasons[0]).toMatch(/cannot be assessed/);
+  });
+
   it('is high when everything reported on time and nothing was flagged', () => {
     const confidence = computeDataConfidence({
       reporting: [reporting(), reporting({ datasetId: 'b' })],

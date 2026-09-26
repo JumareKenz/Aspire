@@ -90,7 +90,15 @@ export function ExecutiveBriefing({
               </div>
               <div>
                 <dt className="text-[11px] text-[var(--text-tertiary)]">Reporting received</dt>
-                <dd className="numeric mt-1 text-[14px] font-semibold">{reporting.completeness}%</dd>
+                <dd className="numeric mt-1 text-[14px] font-semibold">
+                  {reporting.completeness === null ? (
+                    <span className="text-[12px] font-normal text-[var(--text-tertiary)]">
+                      Not available from the source
+                    </span>
+                  ) : (
+                    `${reporting.completeness}%`
+                  )}
+                </dd>
               </div>
             </dl>
 

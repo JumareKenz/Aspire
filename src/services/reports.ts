@@ -338,8 +338,17 @@ function quarterlyPerformance(data: Assembled): ReportSection[] {
 
 function areaPerformance(data: Assembled): ReportSection[] {
   const { scorecard } = data;
+  const provisional = scorecard.domains.some((domain) => domain.indicators.some((indicator) => indicator.targetProvisional));
   const sections: ReportSection[] = [
-    { heading: 'Summary', paragraphs: [headlineParagraph(data)] },
+    {
+      heading: 'Summary',
+      paragraphs: [
+        headlineParagraph(data),
+        ...(provisional
+          ? ['Targets marked provisional are placeholders pending the official ASPIRE-GAC targets. Scores and statuses that depend on them will change when the official targets are set.']
+          : []),
+      ],
+    },
   ];
 
   for (const domain of scorecard.domains) {
@@ -355,8 +364,8 @@ function areaPerformance(data: Assembled): ReportSection[] {
         columns: ['Indicator', 'Value', 'Target', 'Achievement', 'Score', 'Status', 'Trend'],
         rows: domain.indicators.map((indicator) => [
           indicator.name,
-          indicator.value,
-          indicator.target,
+          indicator.mapped ? indicator.value : 'Not reported by the data source',
+          indicator.targetProvisional ? `${indicator.target} (provisional)` : indicator.target,
           indicator.achievementPct === null ? null : `${indicator.achievementPct}%`,
           indicator.score,
           indicator.status.toLowerCase().replace('_', ' '),

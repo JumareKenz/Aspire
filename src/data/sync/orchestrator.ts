@@ -2,7 +2,7 @@ import type { Observation, OrgUnit } from '@/core/model/types';
 import type { IndicatorDefinition } from '@/core/registry/types';
 import { runQualityScan, type DetectorContext, type SeriesInput } from '@/core/quality/detectors';
 import { listIndicators, seedRegistryIfEmpty } from '../repositories/registry';
-import { replaceGeography, upsertOrgUnits } from '../repositories/orgUnits';
+import { deactivateMissingOrgUnits, replaceGeography, upsertOrgUnits } from '../repositories/orgUnits';
 import {
   upsertObservations,
   upsertPeriods,
@@ -57,6 +57,7 @@ export async function runSync(): Promise<SyncResult> {
 
     await upsertPeriods(periods);
     await upsertOrgUnits(orgUnits);
+    await deactivateMissingOrgUnits(orgUnits.map((unit) => unit.id));
     await upsertObservations(observations);
     await upsertReporting(reporting);
     await upsertTargets(

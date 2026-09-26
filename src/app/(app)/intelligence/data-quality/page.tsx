@@ -18,6 +18,15 @@ import { FindingsTable } from './FindingsTable';
 export const metadata: Metadata = { title: 'Data quality' };
 export const dynamic = 'force-dynamic';
 
+/**
+ * The table gets the most severe findings, not every one. A state or federal
+ * scope holds thousands, and sending them all makes the page slow without
+ * making it more useful: the summary above the table says where they are.
+ */
+const TABLE_LIMIT = 500;
+
+const SEVERITY_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+
 const COMPONENT_LABELS: Record<string, string> = {
   completeness: 'Completeness',
   timeliness: 'Timeliness',
@@ -51,6 +60,40 @@ export default async function DataQualityPage({
   const open = findings.filter((finding) => finding.status === 'OPEN');
   const counts = rollup(open);
   const confidence = scorecard?.dataConfidence ?? null;
+
+  // The most common issues, by what the check found and for which indicator.
+  const byIssue = new Map<string, { count: number; units: Set<string> }>();
+  for (const finding of open) {
+    const entry = byIssue.get(finding.title) ?? { count: 0, units: new Set<string>() };
+    entry.count += 1;
+    entry.units.add(finding.orgUnitId);
+    byIssue.set(finding.title, entry);
+  }
+  const commonIssues = [...byIssue].sort((a, b) => b[1].count - a[1].count).slice(0, 6);
+
+  // Where they are: each open finding counted against the area directly
+  // beneath the selected geography that contains it.
+  const paths = new Map(facilities.map((unit) => [unit.id, unit.path]));
+  const byArea = new Map(children.map((child) => [child.id, 0]));
+  for (const finding of open) {
+    const path = paths.get(finding.orgUnitId) ?? [finding.orgUnitId];
+    const area = children.find((child) => path.includes(child.id));
+    if (area) byArea.set(area.id, (byArea.get(area.id) ?? 0) + 1);
+  }
+  const busiestAreas = children
+    .map((child) => ({ child, count: byArea.get(child.id) ?? 0 }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  const tableFindings = [...findings]
+    .sort(
+      (a, b) =>
+        Number(b.status === 'OPEN') - Number(a.status === 'OPEN') ||
+        SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
+        b.periodId.localeCompare(a.periodId),
+    )
+    .slice(0, TABLE_LIMIT);
 
   return (
     <>
@@ -117,26 +160,39 @@ export default async function DataQualityPage({
                     <span className="text-[12px] text-[var(--text-secondary)]">
                       {COMPONENT_LABELS[key] ?? key}
                     </span>
-                    <span className="h-2 overflow-hidden rounded-full bg-[var(--ink-100)]">
-                      <span
-                        className="block h-full rounded-full transition-[width] duration-500"
-                        style={{
-                          width: `${value}%`,
-                          backgroundColor:
-                            value >= 90
-                              ? 'var(--status-fill-positive)'
-                              : value >= 70
-                                ? 'var(--status-fill-warning)'
-                                : 'var(--status-fill-concern)',
-                        }}
-                      />
-                    </span>
-                    <span className="numeric w-20 text-right text-[12px]">
-                      {value}%
-                      <span className="ml-1 text-[10px] text-[var(--text-tertiary)]">
-                        ×{CONFIDENCE_WEIGHTS[key as keyof typeof CONFIDENCE_WEIGHTS]}
-                      </span>
-                    </span>
+                    {value === null ? (
+                      <>
+                        <span className="text-[11px] text-[var(--text-tertiary)]">
+                          No submission records in the source
+                        </span>
+                        <span className="w-20 text-right text-[12px] text-[var(--text-tertiary)]">
+                          n/a
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="h-2 overflow-hidden rounded-full bg-[var(--ink-100)]">
+                          <span
+                            className="block h-full rounded-full transition-[width] duration-500"
+                            style={{
+                              width: `${value}%`,
+                              backgroundColor:
+                                value >= 90
+                                  ? 'var(--status-fill-positive)'
+                                  : value >= 70
+                                    ? 'var(--status-fill-warning)'
+                                    : 'var(--status-fill-concern)',
+                            }}
+                          />
+                        </span>
+                        <span className="numeric w-20 text-right text-[12px]">
+                          {value}%
+                          <span className="ml-1 text-[10px] text-[var(--text-tertiary)]">
+                            ×{CONFIDENCE_WEIGHTS[key as keyof typeof CONFIDENCE_WEIGHTS]}
+                          </span>
+                        </span>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -161,13 +217,70 @@ export default async function DataQualityPage({
         </Card>
       </section>
 
+      {open.length > 0 ? (
+        <section className="mb-6 grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader
+              title="Most common issues"
+              description="Open findings grouped by what the check found."
+            />
+            <CardBody>
+              <ul className="space-y-2">
+                {commonIssues.map(([title, entry]) => (
+                  <li key={title} className="flex items-baseline justify-between gap-3 text-[12px]">
+                    <span className="text-[var(--text-secondary)]">{title}</span>
+                    <span className="numeric shrink-0 text-[var(--text-tertiary)]">
+                      {entry.count.toLocaleString('en-GB')} in {entry.units.size.toLocaleString('en-GB')}{' '}
+                      {entry.units.size === 1 ? 'unit' : 'units'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader
+              title="Where they are"
+              description={`Open findings by area within ${context.orgUnit.name}.`}
+            />
+            <CardBody>
+              {busiestAreas.length > 0 ? (
+                <ul className="space-y-2">
+                  {busiestAreas.map(({ child, count }) => (
+                    <li key={child.id} className="flex items-baseline justify-between gap-3 text-[12px]">
+                      <Link
+                        href={`/intelligence/data-quality?orgUnit=${child.id}&period=${context.periodId}`}
+                        className="text-[var(--brand-600)] hover:underline"
+                      >
+                        {child.name}
+                      </Link>
+                      <span className="numeric text-[var(--text-tertiary)]">{count.toLocaleString('en-GB')}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] text-[var(--text-tertiary)]">
+                  All open findings are recorded against {context.orgUnit.name} itself.
+                </p>
+              )}
+            </CardBody>
+          </Card>
+        </section>
+      ) : null}
+
       <section>
-        <SectionHeading description="Select an issue to see the figures the detector looked at, and record what you decided.">
+        <SectionHeading
+          description={
+            findings.length > TABLE_LIMIT
+              ? `The ${TABLE_LIMIT} most severe of ${findings.length.toLocaleString('en-GB')} findings. Choose an area above to see all of its findings.`
+              : 'Select an issue to see the figures the detector looked at, and record what you decided.'
+          }
+        >
           Findings
         </SectionHeading>
         <Card className="p-4">
           <FindingsTable
-            findings={findings}
+            findings={tableFindings}
             periodId={context.periodId}
             canTriage={can(context.user.role, 'quality.triage')}
           />

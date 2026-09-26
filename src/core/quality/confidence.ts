@@ -65,12 +65,14 @@ function band(score: number): DataConfidence['band'] {
 export function computeDataConfidence(input: ConfidenceInput): DataConfidence {
   const expected = input.reporting.filter((r) => r.expected);
   const reported = expected.filter((r) => r.reported);
-  const completeness = expected.length === 0 ? 100 : round((reported.length / expected.length) * 100, 1);
+  // With no reporting records at all, completeness is unknown, not perfect: a
+  // source that does not record submissions must not read as 100% complete.
+  const completeness = expected.length === 0 ? null : round((reported.length / expected.length) * 100, 1);
 
   const onTime = reported.filter(
     (r) => r.submittedAt !== null && new Date(r.submittedAt) <= new Date(`${r.dueDate}T23:59:59Z`),
   );
-  const timeliness = reported.length === 0 ? 100 : round((onTime.length / reported.length) * 100, 1);
+  const timeliness = reported.length === 0 ? null : round((onTime.length / reported.length) * 100, 1);
 
   const checked = Math.max(input.checkedValues, 1);
   const validity = penaltyScore(
@@ -97,26 +99,36 @@ export function computeDataConfidence(input: ConfidenceInput): DataConfidence {
   );
 
   const components = { completeness, timeliness, validity, consistency, stability };
-  const weighted =
-    completeness * CONFIDENCE_WEIGHTS.completeness +
-    timeliness * CONFIDENCE_WEIGHTS.timeliness +
-    validity * CONFIDENCE_WEIGHTS.validity +
-    consistency * CONFIDENCE_WEIGHTS.consistency +
-    stability * CONFIDENCE_WEIGHTS.stability;
-  const score = round(Math.min(weighted, completeness + COMPLETENESS_CEILING_MARGIN), 1);
+  // Components that cannot be measured are left out and the remaining weights
+  // rescaled, so confidence rests only on what was actually checked.
+  let weightSum = 0;
+  let weightedSum = 0;
+  for (const [key, value] of Object.entries(components) as Array<[keyof typeof components, number | null]>) {
+    if (value === null) continue;
+    weightSum += CONFIDENCE_WEIGHTS[key];
+    weightedSum += value * CONFIDENCE_WEIGHTS[key];
+  }
+  const weighted = weightSum > 0 ? weightedSum / weightSum : 0;
+  const ceiling = completeness === null ? Infinity : completeness + COMPLETENESS_CEILING_MARGIN;
+  const score = round(Math.min(weighted, ceiling), 1);
 
   const reasons: string[] = [];
-  if (weighted > completeness + COMPLETENESS_CEILING_MARGIN) {
+  if (completeness === null) {
+    reasons.push(
+      'Reporting completeness and timeliness cannot be assessed: the data source holds no submission records for this scope. Confidence reflects the checks on the reported values only.',
+    );
+  }
+  if (weighted > ceiling) {
     reasons.push(
       'Confidence is limited by how much of the expected data is present, not by the quality of what was received.',
     );
   }
-  if (completeness < 95) {
+  if (completeness !== null && completeness < 95) {
     reasons.push(
       `${Math.round(100 - completeness)}% of expected reporting submissions are missing for this scope.`,
     );
   }
-  if (timeliness < 90) {
+  if (timeliness !== null && timeliness < 90) {
     reasons.push(`${Math.round(100 - timeliness)}% of received submissions arrived after their deadline.`);
   }
   if (validity < 95) reasons.push('Some reported values fall outside the possible range for their indicator.');

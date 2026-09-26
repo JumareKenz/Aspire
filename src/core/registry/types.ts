@@ -61,6 +61,11 @@ export interface IndicatorDefinition {
   disaggregations: string[];
   /** Default target when no org- or period-specific target is configured. */
   defaultTarget: number;
+  /**
+   * True once the programme has confirmed the target. Until then targets are
+   * placeholders and every screen that shows one says it is provisional.
+   */
+  targetOfficial?: boolean;
   scoring: ScoringRule;
   quality: IndicatorQualityRules;
   /** Mapping back to the authoritative source. */
@@ -83,7 +88,14 @@ export interface IndicatorDefinition {
      * sex. `dx` is a data element and `category` a data-dimension category on
      * it; `counts` names what is counted, as shown beside the split.
      */
-    breakdown?: { dx: string; category: string; label: string; counts: string };
+    breakdown?: {
+      dx: string;
+      category: string;
+      label: string;
+      counts: string;
+      /** Display names for options whose DHIS2 names are unclear or misspelt. */
+      labels?: Record<string, string>;
+    };
   };
   active: boolean;
 }

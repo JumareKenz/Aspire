@@ -78,7 +78,17 @@ export const INDICATORS: IndicatorDefinition[] = [
     // Skilled birth attendance divided by deliveries.
     source: {
       ...dhis2('Ly3HmUoHQEP'),
-      breakdown: { dx: 'N70qtdTZ21W', category: 'UAeKMPymbwQ', label: 'Delivery type', counts: 'deliveries' },
+      breakdown: {
+        dx: 'N70qtdTZ21W',
+        category: 'UAeKMPymbwQ',
+        label: 'Delivery type',
+        counts: 'deliveries',
+        labels: {
+          'Spontaneous Vaginal Delivery (SVD)': 'Spontaneous vaginal delivery',
+          'Caeserean Section': 'Caesarean section',
+          Assisted: 'Assisted delivery',
+        },
+      },
     },
   }),
   percentIndicator({

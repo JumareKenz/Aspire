@@ -106,7 +106,9 @@ export function IndicatorDrawer({
               </dd>
             </div>
             <div>
-              <dt className="text-[11px] text-[var(--text-tertiary)]">Target</dt>
+              <dt className="text-[11px] text-[var(--text-tertiary)]">
+                {detail.indicator.targetOfficial ? 'Target' : 'Target (provisional)'}
+              </dt>
               <dd className="numeric mt-0.5 text-[18px] font-semibold text-[var(--text-secondary)]">
                 {detail.target}
                 {suffix}
@@ -132,8 +134,8 @@ export function IndicatorDrawer({
               {detail.indicator.directionality === 'HIGHER_IS_BETTER' ? 'Higher is better' : 'Lower is better'}
             </Badge>
             {!isMapped(detail.indicator) ? (
-              <Badge tone="warning" title="No DHIS2 identifier has been mapped for this indicator.">
-                Not mapped to DHIS2
+              <Badge tone="warning" title="No DHIS2 source has been mapped for this indicator.">
+                Not reported by the data source
               </Badge>
             ) : null}
           </div>

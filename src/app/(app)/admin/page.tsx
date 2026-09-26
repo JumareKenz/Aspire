@@ -9,6 +9,7 @@ import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { listFindings } from '@/data/repositories/findings';
 import { latestCompletePeriodId } from '@/data/sync/periods';
 import { defaultPeriodId } from '@/services/scorecards';
+import { env } from '@/lib/env';
 import { PageHeader } from '@/design/patterns/PageHeader';
 import { Card, CardBody, CardHeader } from '@/design/primitives/Card';
 import { Badge } from '@/design/primitives/Badge';
@@ -84,6 +85,12 @@ export default async function AdminPage() {
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-tertiary)]">Last success</dt>
                 <dd className="font-medium">{relativeAge(lastSuccess?.finishedAt ?? null)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-[var(--text-tertiary)]">Scheduled sync</dt>
+                <dd className="font-medium">
+                  {env('CRON_SECRET') ? 'Daily, 04:00 West Africa Time' : 'Off (manual only)'}
+                </dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <dt className="text-[var(--text-tertiary)]">Default period</dt>

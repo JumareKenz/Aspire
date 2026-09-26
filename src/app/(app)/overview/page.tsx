@@ -172,11 +172,19 @@ export default async function OverviewPage({
               <div>
                 <dt className="text-[11px] text-[var(--text-tertiary)]">Reporting received</dt>
                 <dd className="numeric mt-1 text-[14px] font-semibold">
-                  {reporting.completeness}%
-                  <span className="ml-1.5 text-[11px] font-normal text-[var(--text-tertiary)]">
-                    {reporting.received.toLocaleString('en-GB')} of{' '}
-                    {reporting.expected.toLocaleString('en-GB')}
-                  </span>
+                  {reporting.completeness === null ? (
+                    <span className="text-[12px] font-normal text-[var(--text-tertiary)]">
+                      Not available from the source
+                    </span>
+                  ) : (
+                    <>
+                      {reporting.completeness}%
+                      <span className="ml-1.5 text-[11px] font-normal text-[var(--text-tertiary)]">
+                        {reporting.received.toLocaleString('en-GB')} of{' '}
+                        {reporting.expected.toLocaleString('en-GB')}
+                      </span>
+                    </>
+                  )}
                 </dd>
               </div>
               <div>

@@ -67,6 +67,14 @@ function cleanName(name: string): string {
   return name.replace(/^[a-z]{2}\s+(?=[A-Z0-9])/, '').trim();
 }
 
+/**
+ * Units that sit in the geographic hierarchy but are not places: each state's
+ * vaccine cold store is filed at LGA level on the national instance. They
+ * report no SRHR data, and listing them among the LGAs would read as two
+ * empty LGAs. They and anything beneath them are left out.
+ */
+const NON_GEOGRAPHIC_UNIT = /\bcold stores?\b/i;
+
 /** Analytics requests are split by period so no single query outlives the timeout. */
 const PERIODS_PER_REQUEST = 4;
 
@@ -277,7 +285,14 @@ export class Dhis2Adapter implements SourceAdapter {
       }
     }
 
-    const kept = [...units.values()].filter((unit) => levelMap[unit.level] !== undefined);
+    const excluded = new Set(
+      [...units.values()].filter((unit) => NON_GEOGRAPHIC_UNIT.test(unit.displayName)).map((unit) => unit.id),
+    );
+    const kept = [...units.values()].filter(
+      (unit) =>
+        levelMap[unit.level] !== undefined &&
+        !unit.path.split('/').some((id) => excluded.has(id)),
+    );
     const keptIds = new Set(kept.map((unit) => unit.id));
 
     return kept.map((unit) => {
@@ -550,6 +565,7 @@ export class Dhis2Adapter implements SourceAdapter {
         if (value === null) continue;
         const option = (items[row[optionIndex]]?.name ?? row[optionIndex]).trim();
         for (const indicator of members) {
+          const { label, labels } = indicator.source.breakdown!;
           observations.push({
             indicatorId: indicator.id,
             orgUnitId: row[ouIndex],
@@ -557,7 +573,7 @@ export class Dhis2Adapter implements SourceAdapter {
             value,
             numerator: null,
             denominator: null,
-            disaggregation: `${indicator.source.breakdown!.label}:${option}`,
+            disaggregation: `${label}:${labels?.[option] ?? option}`,
           });
         }
       }

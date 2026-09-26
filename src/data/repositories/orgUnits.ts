@@ -97,6 +97,16 @@ export async function upsertOrgUnits(units: OrgUnit[]): Promise<void> {
   }
 }
 
+/**
+ * Marks inactive every unit the source no longer returns, e.g. one removed in
+ * DHIS2 or newly excluded by the adapter. Nothing is deleted: history stays
+ * attached, and a unit that reappears is reactivated by the next upsert.
+ */
+export async function deactivateMissingOrgUnits(currentIds: string[]): Promise<number> {
+  if (currentIds.length === 0) return 0;
+  return execute('UPDATE org_units SET active = FALSE WHERE active AND NOT (id = ANY($1))', [currentIds]);
+}
+
 /** Name key for carrying a scope across sources: case, punctuation and spacing ignored. */
 function nameKey(level: string, name: string): string {
   return `${level}|${name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;

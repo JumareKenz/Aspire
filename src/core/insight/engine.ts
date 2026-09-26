@@ -159,7 +159,13 @@ export function generateInsights(input: InsightInput): Insight[] {
       periodId: period,
       evidence: [
         { label: 'Data confidence', value: `${child.dataConfidence.score}%` },
-        { label: 'Completeness', value: `${child.dataConfidence.components.completeness}%` },
+        {
+          label: 'Completeness',
+          value:
+            child.dataConfidence.components.completeness === null
+              ? 'Not available'
+              : `${child.dataConfidence.components.completeness}%`,
+        },
         { label: 'Reported score', value: evidencePct(child.overallScore) },
       ],
       magnitude: (100 - child.dataConfidence.score) * 1.5,
@@ -204,21 +210,27 @@ export function generateRecommendations(input: RecommendationInput): Recommendat
       const completeness = child.dataConfidence.components.completeness;
       recommendations.push({
         id: `rec-quality:${child.orgUnitId}:${child.periodId}`,
-        title: `Restore reporting completeness in ${child.orgUnitName} before acting on its score`,
+        title:
+          completeness === null
+            ? `Resolve data-quality issues in ${child.orgUnitName} before acting on its score`
+            : `Restore reporting completeness in ${child.orgUnitName} before acting on its score`,
         issue: `Data confidence in ${child.orgUnitName} is ${child.dataConfidence.score}%, which is too low to distinguish a service problem from a reporting problem.`,
         location: child.orgUnitName,
         orgUnitId: child.orgUnitId,
         indicatorIds: [],
         evidence: [
           { label: 'Data confidence', value: `${child.dataConfidence.score}%` },
-          { label: 'Reporting completeness', value: `${completeness}%` },
+          { label: 'Reporting completeness', value: completeness === null ? 'Not available' : `${completeness}%` },
           { label: 'Open quality findings', value: String(unitFindings.length) },
         ],
         likelyDriver:
-          completeness < 80
+          completeness !== null && completeness < 80
             ? 'Reporting units within this LGA are not submitting their datasets on schedule.'
             : 'Submitted data contains values that fail validity or consistency checks.',
-        nextStep: `Confirm which reporting units in ${child.orgUnitName} have outstanding submissions for ${child.periodLabel}, and resolve the ${unitFindings.length} open data-quality findings before the score is used for decisions.`,
+        nextStep:
+          completeness === null
+            ? `Resolve the ${unitFindings.length} open data-quality findings in ${child.orgUnitName} before the score is used for decisions.`
+            : `Confirm which reporting units in ${child.orgUnitName} have outstanding submissions for ${child.periodLabel}, and resolve the ${unitFindings.length} open data-quality findings before the score is used for decisions.`,
         priority: 'HIGH',
         confidence: 0.85,
       });

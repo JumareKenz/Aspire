@@ -93,6 +93,10 @@ export interface IndicatorScore {
   carriedForward: boolean;
   unit: string;
   directionality: 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER';
+  /** False when the indicator has no data source, as distinct from no value this period. */
+  mapped: boolean;
+  /** True while the target is a placeholder awaiting the programme's confirmation. */
+  targetProvisional: boolean;
 }
 
 export interface DomainScore {
@@ -118,8 +122,10 @@ export interface DataConfidence {
   score: number;
   band: 'HIGH' | 'MODERATE' | 'LOW';
   components: {
-    completeness: number;
-    timeliness: number;
+    /** Null when the source holds no reporting records to measure it from. */
+    completeness: number | null;
+    /** Null when there are no received submissions to time. */
+    timeliness: number | null;
     validity: number;
     consistency: number;
     stability: number;

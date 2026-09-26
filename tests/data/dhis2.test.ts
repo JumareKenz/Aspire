@@ -75,6 +75,9 @@ describe('Dhis2Adapter', () => {
           organisationUnits: [
             { id: 'ou-ba', displayName: 'ba Bauchi State', level: 2, parent: { id: 'ng' }, path: '/ng/ou-ba' },
             { id: 'ba-lga', displayName: 'ba Alkaleri Local Government Area', level: 3, parent: { id: 'ou-ba' }, path: '/ng/ou-ba/ba-lga' },
+            // A supply depot filed at LGA level, with a unit beneath it.
+            { id: 'ba-cold', displayName: 'ba Bauchi State Cold Store', level: 3, parent: { id: 'ou-ba' }, path: '/ng/ou-ba/ba-cold' },
+            { id: 'ba-cold-sub', displayName: 'ba Cold Room 1', level: 4, parent: { id: 'ba-cold' }, path: '/ng/ou-ba/ba-cold/ba-cold-sub' },
             { id: 'ba-ward', displayName: 'ba Pali Ward', level: 4, parent: { id: 'ba-lga' }, path: '/ng/ou-ba/ba-lga/ba-ward' },
             {
               id: 'ba-fac',
@@ -102,6 +105,8 @@ describe('Dhis2Adapter', () => {
     expect(byId.get('ng')).toMatchObject({ level: 'COUNTRY', name: 'Federal Government', parentId: null });
     expect(byId.get('ou-ba')).toMatchObject({ level: 'STATE', name: 'Bauchi State', parentId: 'ng' });
     expect(byId.get('ba-lga')).toMatchObject({ level: 'LGA', parentId: 'ou-ba' });
+    expect(byId.has('ba-cold')).toBe(false);
+    expect(byId.has('ba-cold-sub')).toBe(false);
     expect(byId.get('ba-ward')).toMatchObject({ level: 'WARD', parentId: 'ba-lga' });
     expect(byId.get('ba-fac')).toMatchObject({
       level: 'FACILITY',

@@ -226,8 +226,12 @@ export function generateDemoData(
         for (const anomaly of planted) {
           if (anomaly.indicatorId !== indicator.id) continue;
           if (anomaly.kind === 'IMPOSSIBLE_VALUE' && index === periods.length - 2) {
+            // A percentage reported without its numerator and denominator, so
+            // only the range check can catch it. (One with them is reported as
+            // a numerator above its denominator instead.)
             value = 128.4;
-            numerator = denominator === null ? null : Math.round((value / 100) * denominator);
+            numerator = null;
+            denominator = null;
           }
           if (anomaly.kind === 'NUMERATOR_EXCEEDS_DENOMINATOR' && index === periods.length - 1 && denominator !== null) {
             numerator = Math.round(denominator * 1.18);

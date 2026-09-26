@@ -151,8 +151,12 @@ export function ScorecardTable({
                             {/* The measured value belongs with the indicator that was
                                 measured, not in a column a domain row cannot fill. */}
                             <span className="numeric mt-0.5 block text-[11px] text-[var(--text-tertiary)]">
-                              {indicator.value === null ? 'No value reported' : `${indicator.value}${suffix}`}
-                              {' against a target of '}
+                              {!indicator.mapped
+                                ? 'Not reported by the data source'
+                                : indicator.value === null
+                                  ? 'No value reported this period'
+                                  : `${indicator.value}${suffix}`}
+                              {indicator.targetProvisional ? ' against a provisional target of ' : ' against a target of '}
                               {indicator.target}
                               {suffix}
                             </span>
