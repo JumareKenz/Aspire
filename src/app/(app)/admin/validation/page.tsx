@@ -65,6 +65,24 @@ export default async function ValidationPage() {
 
   const findings = overview.findings;
   const quality: ReactNode = (
+    <div className="flex flex-col gap-5">
+    <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <div>
+        <h3 className="text-[14px] font-semibold text-[var(--text-primary)]">Share with the DHIS2 team</h3>
+        <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+          Every open finding in one Excel workbook: by indicator with the DHIS2 indicator or data element it comes from, by
+          LGA, and one row per issue with the facility, period and figures behind it. Built fresh from the latest
+          synchronisation.
+        </p>
+      </div>
+      <a
+        href="/api/admin/validation/export"
+        download
+        className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--brand-action)] px-5 text-[14px] font-medium text-[var(--brand-action-fg)] transition-colors hover:bg-[var(--brand-action-hover)]"
+      >
+        Export issues (Excel)
+      </a>
+    </Card>
     <div className="grid gap-5 lg:grid-cols-2">
       <Panel
         title="By type of problem"
@@ -110,6 +128,7 @@ export default async function ValidationPage() {
           Review and resolve findings in the data-quality workspace →
         </Link>
       </Panel>
+    </div>
     </div>
   );
 
@@ -235,7 +254,7 @@ function BarList({ rows }: { rows: Array<{ label: string; value: number }> }) {
   return (
     <ul className="flex flex-col gap-3.5">
       {rows.map((row) => (
-        <li key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-[13px] sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_72px] sm:items-center">
+        <li key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-[13px] sm:grid-cols-[minmax(0,230px)_minmax(0,1fr)_72px] sm:items-center">
           <span className="truncate text-[var(--text-secondary)]">{row.label}</span>
           <span className="numeric text-right font-medium sm:order-last">{row.value.toLocaleString('en-GB')}</span>
           <span className="col-span-2 h-2 rounded-full bg-[var(--ink-100)] sm:col-span-1">
