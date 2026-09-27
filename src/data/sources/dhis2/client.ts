@@ -73,7 +73,11 @@ export class Dhis2Client {
     return this.config.baseUrl;
   }
 
-  private async request<T>(path: string, params?: Record<string, string | string[]>): Promise<T> {
+  private async request<T>(
+    path: string,
+    params?: Record<string, string | string[]>,
+    timeoutMs = this.config.timeoutMs,
+  ): Promise<T> {
     const url = new URL(`${this.config.baseUrl}/api/${path.replace(/^\/+/, '')}`);
     for (const [key, value] of Object.entries(params ?? {})) {
       if (Array.isArray(value)) {
@@ -84,7 +88,7 @@ export class Dhis2Client {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, {
         headers: { Authorization: authHeader(this.config), Accept: 'application/json' },
@@ -182,6 +186,127 @@ export class Dhis2Client {
   }
 
   /**
+   * The metadata catalogue behind the data explorer: indicators and aggregate
+   * data elements with their groups, forms and categories. Fetched whole
+   * (a few thousand rows) and cached by the caller.
+   */
+  async catalogue(): Promise<{
+    indicators: Array<{
+      id: string;
+      displayName: string;
+      indicatorType?: { displayName: string };
+      indicatorGroups?: Array<{ displayName: string }>;
+      numeratorDescription?: string;
+      denominatorDescription?: string;
+    }>;
+    dataElements: Array<{
+      id: string;
+      displayName: string;
+      valueType?: string;
+      aggregationType?: string;
+      dataElementGroups?: Array<{ displayName: string }>;
+      dataSetElements?: Array<{ dataSet?: { id: string; displayName: string } }>;
+      categoryCombo?: {
+        categories?: Array<{ id: string; displayName: string; dataDimension?: boolean }>;
+      };
+    }>;
+  }> {
+    const [indicators, dataElements] = await Promise.all([
+      this.request<{ indicators: never[] }>('indicators', {
+        fields:
+          'id,displayName,indicatorType[displayName],indicatorGroups[displayName],numeratorDescription,denominatorDescription',
+        paging: 'false',
+      }),
+      this.request<{ dataElements: never[] }>('dataElements', {
+        filter: 'domainType:eq:AGGREGATE',
+        fields:
+          'id,displayName,valueType,aggregationType,dataElementGroups[displayName],dataSetElements[dataSet[id,displayName]],categoryCombo[categories[id,displayName,dataDimension]]',
+        paging: 'false',
+      }),
+    ]);
+    return { indicators: indicators.indicators, dataElements: dataElements.dataElements };
+  }
+
+  /** DHIS2's own outlier detection over facility-level raw values. */
+  async outliers(params: {
+    dataElements: string[];
+    orgUnits: string[];
+    startDate: string;
+    endDate: string;
+    algorithm: 'Z_SCORE' | 'MOD_Z_SCORE' | 'MIN_MAX';
+    threshold?: number;
+    maxResults?: number;
+  }): Promise<{
+    outlierValues?: Array<{
+      de: string;
+      deName: string;
+      pe: string;
+      ou: string;
+      ouName: string;
+      cocName?: string;
+      value: number;
+      mean?: number;
+      median?: number;
+      stdDev?: number;
+      zScore?: number;
+      lowerBound?: number;
+      upperBound?: number;
+    }>;
+  }> {
+    // Outlier detection scans every raw facility value in the range, which
+    // takes DHIS2 far longer than an analytics query does.
+    return this.request(
+      'outlierDetection',
+      {
+        de: params.dataElements,
+        ou: params.orgUnits,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        algorithm: params.algorithm,
+        ...(params.threshold ? { threshold: String(params.threshold) } : {}),
+        maxResults: String(params.maxResults ?? 200),
+        orderBy: params.algorithm === 'MIN_MAX' ? 'ABS_DEV' : 'Z_SCORE',
+      },
+      Math.max(this.config.timeoutMs, 120_000),
+    );
+  }
+
+  /** Validation rules, for describing violations. */
+  async validationRules(): Promise<
+    Array<{
+      id: string;
+      displayName: string;
+      importance?: string;
+      operator?: string;
+      instruction?: string;
+      leftSide?: { description?: string };
+      rightSide?: { description?: string };
+    }>
+  > {
+    const response = await this.request<{ validationRules: never[] }>('validationRules', {
+      fields: 'id,displayName,importance,operator,instruction,leftSide[description],rightSide[description]',
+      paging: 'false',
+    });
+    return response.validationRules;
+  }
+
+  /**
+   * Runs a form's validation rules for one org unit and period. A read-only
+   * request, unlike the bulk validation analysis, which needs write access.
+   */
+  async validateDataSet(dataSet: string, period: string, orgUnit: string): Promise<{
+    validationRuleViolations?: Array<{
+      validationRule?: { id: string; name?: string; displayName?: string };
+      leftsideValue?: number;
+      rightsideValue?: number;
+      period?: { id?: string };
+      organisationUnit?: { id: string; name?: string };
+    }>;
+  }> {
+    return this.request(`validation/dataSet/${encodeURIComponent(dataSet)}`, { pe: period, ou: orgUnit });
+  }
+
+  /**
    * Dimensional analytics query. `dx`, `pe` and `ou` are passed as DHIS2
    * dimensions so aggregation happens server-side in DHIS2.
    *
@@ -198,8 +323,20 @@ export class Dhis2Client {
     /** Extra dimensions, e.g. a category UID to split values by its options. */
     dimensions?: string[];
   }): Promise<AnalyticsResponse> {
+    return this.request<AnalyticsResponse>('analytics', this.analyticsParams(params));
+  }
+
+  /** The analytics query string, shared with `analyticsUrl` for display. */
+  private analyticsParams(params: {
+    dx: string[];
+    pe: string[];
+    ou: string[];
+    level?: number;
+    includeNumDen?: boolean;
+    dimensions?: string[];
+  }): Record<string, string | string[]> {
     const ouDimension = params.level ? [...params.ou, `LEVEL-${params.level}`] : params.ou;
-    return this.request<AnalyticsResponse>('analytics', {
+    return {
       dimension: [
         `dx:${params.dx.join(';')}`,
         `pe:${params.pe.join(';')}`,
@@ -209,7 +346,19 @@ export class Dhis2Client {
       includeNumDen: String(params.includeNumDen ?? true),
       skipMeta: 'false',
       skipRounding: 'true',
-    });
+    };
+  }
+
+  /**
+   * The same query as a DHIS2 URL, without credentials, so an analyst can
+   * reproduce a result in DHIS2 itself.
+   */
+  analyticsUrl(params: Parameters<Dhis2Client['analytics']>[0]): string {
+    const url = new URL(`${this.config.baseUrl}/api/analytics`);
+    for (const [key, value] of Object.entries(this.analyticsParams(params))) {
+      for (const item of Array.isArray(value) ? value : [value]) url.searchParams.append(key, item);
+    }
+    return url.toString();
   }
 
   /**

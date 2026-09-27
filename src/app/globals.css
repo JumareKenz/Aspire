@@ -33,6 +33,11 @@
   --brand-200: #8fbfa8;
   --brand-100: #d7e8df;
   --brand-050: #eef6f2;
+  /* Primary buttons. Previously defined for the dark theme only, which left
+     every primary button unfilled in the light theme. */
+  --brand-action: var(--brand-600);
+  --brand-action-hover: var(--brand-700);
+  --brand-action-fg: #ffffff;
 
   /* Accent. Used for the mark and sparingly for emphasis; never for a series. */
   --accent-700: #7a6118;

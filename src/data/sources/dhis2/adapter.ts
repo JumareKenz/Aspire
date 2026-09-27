@@ -36,7 +36,7 @@ const DEFAULT_LEVEL_MAP: Record<number, OrgLevel> = {
   5: 'FACILITY',
 };
 
-function readLevelMap(): Record<number, OrgLevel> {
+export function readLevelMap(): Record<number, OrgLevel> {
   const configured = env('DHIS2_LEVEL_MAP');
   if (!configured) return DEFAULT_LEVEL_MAP;
 
