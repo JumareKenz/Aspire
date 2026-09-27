@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Catalogue, CatalogueItem, ExplorerResult } from '@/services/explorer';
 import { Badge } from '@/design/primitives/Badge';
 import { Button } from '@/design/primitives/Button';
-import { Card, CardBody, CardHeader } from '@/design/primitives/Card';
+import { Card } from '@/design/primitives/Card';
+import { Drawer } from '@/design/primitives/Drawer';
 import { Select } from '@/design/primitives/Field';
 import { EmptyState, ErrorState, LoadingBlock } from '@/design/primitives/States';
 import { TableWrap, Td, Th, Tr } from '@/design/primitives/Table';
@@ -14,6 +15,7 @@ import { callApi, saveText, toCsv } from './api';
 import { DataPicker } from './DataPicker';
 import { OrgUnitPicker, type PickedUnit } from './OrgUnitPicker';
 import { RELATIVE, periodLabel, recentPeriods, type PeriodType } from './periods';
+import { Chip, ScrollArea } from '../ui';
 
 type Level = 'STATE' | 'LGA' | 'WARD' | 'FACILITY';
 type Across = 'pe' | 'ou' | 'dx';
@@ -33,6 +35,7 @@ export function Explorer({ source }: { source: string }) {
   const [periodType, setPeriodType] = useState<PeriodType>('QUARTERLY');
   const [periods, setPeriods] = useState<string[]>([]);
   const [units, setUnits] = useState<PickedUnit[]>([]);
+  const [roots, setRoots] = useState<PickedUnit[]>([]);
   const [level, setLevel] = useState<Level | ''>('');
   const [category, setCategory] = useState('');
   const [result, setResult] = useState<ExplorerResult | null>(null);
@@ -40,6 +43,7 @@ export function Explorer({ source }: { source: string }) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'chart'>('table');
   const [across, setAcross] = useState<Across>('pe');
+  const [panel, setPanel] = useState<'data' | 'periods' | 'areas' | null>(null);
 
   function loadCatalogue(refresh = false) {
     setCatalogueError(null);
@@ -51,6 +55,9 @@ export function Explorer({ source }: { source: string }) {
     callApi<Catalogue>('/api/admin/explorer/catalogue')
       .then(setCatalogue)
       .catch((reason: Error) => setCatalogueError(reason.message));
+    callApi<Array<{ id: string; name: string; level: PickedUnit['level'] }>>('/api/admin/explorer/orgunits')
+      .then((list) => setRoots(list.map((unit) => ({ id: unit.id, name: unit.name, level: unit.level }))))
+      .catch(() => setRoots([]));
   }, []);
 
   const toggle = <T extends { id: string }>(list: T[], item: T) =>
@@ -62,20 +69,23 @@ export function Explorer({ source }: { source: string }) {
   const split = splittable.some((option) => option.id === category) ? category : '';
 
   const ready = data.length > 0 && periods.length > 0 && units.length > 0;
+  const missing = [data.length === 0 && 'data', periods.length === 0 && 'periods', units.length === 0 && 'areas'].filter(Boolean);
 
-  async function run() {
+  async function run(query?: { dx: string[]; periods: string[]; orgUnits: string[]; level: Level | null; category: string | null }) {
     setRunning(true);
     setError(null);
     try {
       const next = await callApi<ExplorerResult>('/api/admin/explorer/query', {
         method: 'POST',
-        body: JSON.stringify({
-          dx: data.map((item) => item.id),
-          periods,
-          orgUnits: units.map((unit) => unit.id),
-          level: level || null,
-          category: split || null,
-        }),
+        body: JSON.stringify(
+          query ?? {
+            dx: data.map((item) => item.id),
+            periods,
+            orgUnits: units.map((unit) => unit.id),
+            level: level || null,
+            category: split || null,
+          },
+        ),
       });
       setResult(next);
     } catch (reason) {
@@ -85,114 +95,187 @@ export function Explorer({ source }: { source: string }) {
     }
   }
 
+  /** A worked example, so the first visit shows what the explorer does. */
+  const example = catalogue?.items.find((item) => item.id === 'Ly3HmUoHQEP') ?? catalogue?.items.find((item) => item.usedBy && item.kind === 'INDICATOR');
+  function tryExample() {
+    if (!example || roots.length === 0) return;
+    setData([example]);
+    setPeriods(['LAST_4_QUARTERS']);
+    setUnits(roots);
+    setLevel('STATE');
+    void run({ dx: [example.id], periods: ['LAST_4_QUARTERS'], orgUnits: roots.map((unit) => unit.id), level: 'STATE', category: null });
+  }
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader title="1 · Data" description="Indicators or data elements from the connected instance." />
-          <CardBody>
-            {catalogueError ? (
-              <ErrorState title="The DHIS2 catalogue could not be loaded." description={catalogueError} />
-            ) : catalogue ? (
-              <DataPicker items={catalogue.items} selected={data} onToggle={(item) => setData((list) => toggle(list, item))} />
-            ) : (
-              <LoadingBlock rows={4} />
-            )}
-          </CardBody>
-        </Card>
+    <div className="flex flex-col gap-6">
+      <section aria-label="Build a query" className="grid gap-4 md:grid-cols-3">
+        <BuilderCard
+          step="Data"
+          title={data.length === 0 ? 'Choose what to measure' : `${data.length} ${data.length === 1 ? 'item' : 'items'}`}
+          empty="Indicators or data elements"
+          items={data.map((item) => ({ id: item.id, label: item.name }))}
+          onRemove={(id) => setData((list) => list.filter((item) => item.id !== id))}
+          onEdit={() => setPanel('data')}
+          loading={!catalogue && !catalogueError}
+        />
+        <BuilderCard
+          step="Periods"
+          title={periods.length === 0 ? 'Choose when' : `${periods.length} ${periods.length === 1 ? 'period' : 'periods'}`}
+          empty="Months, quarters or years"
+          items={periods.map((id) => ({ id, label: periodLabel(id) }))}
+          onRemove={(id) => setPeriods((list) => list.filter((entry) => entry !== id))}
+          onEdit={() => setPanel('periods')}
+        />
+        <BuilderCard
+          step="Areas"
+          title={units.length === 0 ? 'Choose where' : `${units.length} ${units.length === 1 ? 'area' : 'areas'}`}
+          empty="States, LGAs, wards or facilities"
+          items={units.map((unit) => ({ id: unit.id, label: unit.name }))}
+          onRemove={(id) => setUnits((list) => list.filter((unit) => unit.id !== id))}
+          onEdit={() => setPanel('areas')}
+        />
+      </section>
 
-        <Card>
-          <CardHeader title="2 · Periods" />
-          <CardBody className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-1.5">
+      <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="grid flex-1 gap-4 sm:grid-cols-2 lg:max-w-2xl">
+          <Select label="Show values for" value={level} onChange={(event) => setLevel(event.target.value as Level | '')}>
+            <option value="">The selected areas</option>
+            <option value="STATE">Each state within them</option>
+            <option value="LGA">Each LGA within them</option>
+            <option value="WARD">Each ward within them</option>
+            <option value="FACILITY">Each facility within them</option>
+          </Select>
+          <Select
+            label="Split by"
+            value={split}
+            onChange={(event) => setCategory(event.target.value)}
+            disabled={splittable.length === 0}
+            title={splittable.length === 0 ? 'Available when one data element with categories is chosen' : undefined}
+          >
+            <option value="">{splittable.length === 0 ? 'Choose one data element to split' : 'No split (totals)'}</option>
+            {splittable.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Button variant="primary" onClick={() => run()} disabled={!ready || running} className="h-10 px-6 text-[14px]">
+            {running ? 'Running…' : 'Run query'}
+          </Button>
+          <p className="text-[11px] text-[var(--text-tertiary)]">
+            {ready ? 'Runs live against DHIS2' : `Choose ${missing.join(', ').replace(/, ([^,]*)$/, ' and $1')} first`}
+          </p>
+        </div>
+      </Card>
+
+      {error ? <ErrorState title="The query did not run." description={error} /> : null}
+
+      {result ? (
+        <Results result={result} view={view} setView={setView} across={across} setAcross={setAcross} />
+      ) : !error ? (
+        <Card className="flex flex-col items-center gap-5 px-6 py-14 text-center">
+          <div className="grid gap-6 text-left sm:grid-cols-3 sm:gap-10">
+            {[
+              ['1', 'Choose data', 'Any indicator or data element on the connected instance.'],
+              ['2', 'Choose periods and areas', 'Relative periods like “last 4 quarters”, and any area in your access.'],
+              ['3', 'Run and explore', 'Pivot the table, switch to a chart, download or reproduce in DHIS2.'],
+            ].map(([n, title, text]) => (
+              <div key={n} className="flex max-w-[240px] gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--brand-050)] text-[12px] font-semibold text-[var(--brand-700)]">{n}</span>
+                <div>
+                  <p className="text-[13px] font-semibold text-[var(--text-primary)]">{title}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">{text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {example && roots.length > 0 ? (
+            <Button onClick={tryExample} disabled={running}>
+              Try an example: {example.name}, last 4 quarters, by state
+            </Button>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <p className="text-[12px] text-[var(--text-tertiary)]">
+        Source <span className="font-mono">{source.replace(/^https?:\/\//, '')}</span>
+        {catalogue ? (
+          <>
+            {' '}· catalogue of {catalogue.items.length.toLocaleString('en-GB')} items loaded{' '}
+            {new Date(catalogue.loadedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} ·{' '}
+            <button type="button" className="text-[var(--brand-600)] hover:underline" onClick={() => loadCatalogue(true)}>
+              reload
+            </button>
+          </>
+        ) : null}
+      </p>
+
+      <Drawer
+        open={panel === 'data'}
+        onClose={() => setPanel(null)}
+        title="Choose data"
+        description="Indicators or data elements from the connected instance. Select as many as you need."
+        width="lg"
+        footer={<DrawerFooter count={data.length} noun="item" onClear={() => setData([])} onDone={() => setPanel(null)} />}
+      >
+        {catalogueError ? (
+          <ErrorState title="The DHIS2 catalogue could not be loaded." description={catalogueError} />
+        ) : catalogue ? (
+          <DataPicker items={catalogue.items} selected={data} onToggle={(item) => setData((list) => toggle(list, item))} />
+        ) : (
+          <LoadingBlock rows={6} />
+        )}
+      </Drawer>
+
+      <Drawer
+        open={panel === 'periods'}
+        onClose={() => setPanel(null)}
+        title="Choose periods"
+        description="Relative periods move with time; fixed periods stay put."
+        footer={<DrawerFooter count={periods.length} noun="period" onClear={() => setPeriods([])} onDone={() => setPanel(null)} />}
+      >
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[var(--text-tertiary)]">Relative</p>
+            <div className="flex flex-wrap gap-2">
               {RELATIVE.map((option) => (
-                <Chip key={option.id} on={periods.includes(option.id)} onClick={() => setPeriods((list) => flip(list, option.id))}>
+                <Toggle key={option.id} on={periods.includes(option.id)} onClick={() => setPeriods((list) => flip(list, option.id))}>
                   {option.label}
-                </Chip>
+                </Toggle>
               ))}
             </div>
-            <Select label="Period type" value={periodType} onChange={(event) => setPeriodType(event.target.value as PeriodType)}>
-              <option value="MONTHLY">Months</option>
-              <option value="QUARTERLY">Quarters</option>
-              <option value="YEARLY">Years</option>
-            </Select>
-            <div className="grid max-h-[180px] grid-cols-3 gap-1.5 overflow-y-auto">
-              {recentPeriods(periodType).map((option) => (
-                <Chip key={option.id} on={periods.includes(option.id)} onClick={() => setPeriods((list) => flip(list, option.id))}>
-                  {option.label}
-                </Chip>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader title="3 · Areas" description="Areas in your access. Federal figures are the two states combined." />
-          <CardBody className="flex flex-col gap-3">
-            <OrgUnitPicker selected={units} onToggle={(unit) => setUnits((list) => toggle(list, unit))} />
-            <Select label="Show values for" value={level} onChange={(event) => setLevel(event.target.value as Level | '')}>
-              <option value="">The selected areas</option>
-              <option value="STATE">Each state within them</option>
-              <option value="LGA">Each LGA within them</option>
-              <option value="WARD">Each ward within them</option>
-              <option value="FACILITY">Each facility within them</option>
-            </Select>
-          </CardBody>
-        </Card>
-
-        {splittable.length > 0 ? (
-          <Card>
-            <CardHeader title="4 · Split" description="Break the data element down by one of its categories." />
-            <CardBody>
-              <Select label="Split by" value={split} onChange={(event) => setCategory(event.target.value)}>
-                <option value="">No split (totals)</option>
-                {splittable.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}
-                  </option>
-                ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-end justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[var(--text-tertiary)]">Fixed</p>
+              <Select label="Period type" hideLabel value={periodType} onChange={(event) => setPeriodType(event.target.value as PeriodType)} className="w-[140px]">
+                <option value="MONTHLY">Months</option>
+                <option value="QUARTERLY">Quarters</option>
+                <option value="YEARLY">Years</option>
               </Select>
-            </CardBody>
-          </Card>
-        ) : null}
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-4">
-        <Card>
-          <CardBody className="flex flex-col gap-3">
-            <Selection data={data} periods={periods} units={units} onRemoveData={(id) => setData((list) => list.filter((item) => item.id !== id))} onRemovePeriod={(id) => setPeriods((list) => list.filter((entry) => entry !== id))} onRemoveUnit={(id) => setUnits((list) => list.filter((unit) => unit.id !== id))} />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <p className="text-[12px] text-[var(--text-tertiary)]">
-                Source <span className="font-mono">{source.replace(/^https?:\/\//, '')}</span>
-                {catalogue ? (
-                  <>
-                    {' '}· catalogue loaded {new Date(catalogue.loadedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{' '}
-                    <button type="button" className="text-[var(--brand-600)] hover:underline" onClick={() => loadCatalogue(true)}>
-                      Reload
-                    </button>
-                  </>
-                ) : null}
-              </p>
-              <Button variant="primary" onClick={run} disabled={!ready || running}>
-                {running ? 'Running…' : 'Run query'}
-              </Button>
             </div>
-          </CardBody>
-        </Card>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {recentPeriods(periodType).map((option) => (
+                <Toggle key={option.id} on={periods.includes(option.id)} onClick={() => setPeriods((list) => flip(list, option.id))}>
+                  {option.label}
+                </Toggle>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Drawer>
 
-        {error ? <ErrorState title="The query did not run." description={error} /> : null}
-
-        {result ? (
-          <Results result={result} view={view} setView={setView} across={across} setAcross={setAcross} />
-        ) : !error ? (
-          <Card className="p-4">
-            <EmptyState
-              title="Choose data, periods and areas, then run the query."
-              description="For example: “Deliveries with a skilled birth attendant” for the last 4 quarters in both states, shown for each LGA."
-            />
-          </Card>
-        ) : null}
-      </div>
+      <Drawer
+        open={panel === 'areas'}
+        onClose={() => setPanel(null)}
+        title="Choose areas"
+        description="Areas in your access. Choose “Show values for” to break them down, e.g. every LGA within a state."
+        footer={<DrawerFooter count={units.length} noun="area" onClear={() => setUnits([])} onDone={() => setPanel(null)} />}
+      >
+        <OrgUnitPicker selected={units} onToggle={(unit) => setUnits((list) => toggle(list, unit))} />
+      </Drawer>
     </div>
   );
 }
@@ -201,17 +284,17 @@ function flip(list: string[], id: string) {
   return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
 }
 
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       aria-pressed={on}
       onClick={onClick}
       className={cn(
-        'rounded-[var(--radius-md)] border px-2 py-1 text-[12px] transition-colors',
+        'rounded-[var(--radius-md)] border px-3 py-2 text-[13px] transition-colors duration-150',
         on
           ? 'border-[var(--brand-600)] bg-[var(--brand-050)] font-medium text-[var(--brand-700)]'
-          : 'text-[var(--text-secondary)] hover:border-[var(--border-strong)]',
+          : 'text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]',
       )}
     >
       {children}
@@ -219,45 +302,79 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   );
 }
 
-function Selection({
-  data,
-  periods,
-  units,
-  onRemoveData,
-  onRemovePeriod,
-  onRemoveUnit,
+/** One of the three query parts: what is chosen, and a way to change it. */
+function BuilderCard({
+  step,
+  title,
+  empty,
+  items,
+  onRemove,
+  onEdit,
+  loading = false,
 }: {
-  data: CatalogueItem[];
-  periods: string[];
-  units: PickedUnit[];
-  onRemoveData: (id: string) => void;
-  onRemovePeriod: (id: string) => void;
-  onRemoveUnit: (id: string) => void;
+  step: string;
+  title: string;
+  empty: string;
+  items: Array<{ id: string; label: string }>;
+  onRemove: (id: string) => void;
+  onEdit: () => void;
+  loading?: boolean;
 }) {
-  const group = (label: string, items: Array<{ id: string; label: string }>, remove: (id: string) => void) => (
-    <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-2">
-      <span className="pt-1 text-[11px] font-medium text-[var(--text-tertiary)]">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
-        {items.length === 0 ? (
-          <span className="pt-1 text-[12px] text-[var(--text-tertiary)]">None chosen</span>
-        ) : (
-          items.map((item) => (
-            <span key={item.id} className="inline-flex max-w-full items-center gap-1 rounded-[var(--radius-md)] border bg-[var(--surface-sunken)] py-0.5 pl-2 pr-1 text-[12px]">
-              <span className="truncate">{item.label}</span>
-              <button type="button" aria-label={`Remove ${item.label}`} onClick={() => remove(item.id)} className="rounded px-1 text-[var(--text-tertiary)] hover:bg-[var(--ink-100)]">
-                ×
-              </button>
-            </span>
-          ))
-        )}
-      </div>
-    </div>
-  );
+  const shown = items.slice(0, 4);
   return (
-    <div className="flex flex-col gap-2">
-      {group('Data', data.map((item) => ({ id: item.id, label: item.name })), onRemoveData)}
-      {group('Periods', periods.map((id) => ({ id, label: periodLabel(id) })), onRemovePeriod)}
-      {group('Areas', units.map((unit) => ({ id: unit.id, label: unit.name })), onRemoveUnit)}
+    <Card className={cn('flex min-h-[148px] flex-col gap-4 p-5 transition-colors', items.length > 0 && 'border-[var(--brand-200)]')}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[var(--text-tertiary)]">{step}</p>
+          <p className="mt-1 text-[15px] font-semibold text-[var(--text-primary)]">{title}</p>
+        </div>
+        <Button size="sm" variant={items.length === 0 ? 'primary' : 'secondary'} onClick={onEdit} disabled={loading}>
+          {loading ? 'Loading…' : items.length === 0 ? 'Choose' : 'Edit'}
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={loading}
+          className="flex flex-1 items-center justify-center rounded-[var(--radius-lg)] border border-dashed px-4 text-[12px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--brand-400)] hover:text-[var(--text-secondary)]"
+        >
+          {empty}
+        </button>
+      ) : (
+        <div className="flex flex-wrap content-start gap-2">
+          {shown.map((item) => (
+            <Chip key={item.id} onRemove={() => onRemove(item.id)}>
+              {item.label}
+            </Chip>
+          ))}
+          {items.length > shown.length ? (
+            <button type="button" onClick={onEdit} className="rounded-full px-2 py-1 text-[12px] font-medium text-[var(--brand-600)] hover:underline">
+              +{items.length - shown.length} more
+            </button>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function DrawerFooter({ count, noun, onClear, onDone }: { count: number; noun: string; onClear: () => void; onDone: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-[13px] text-[var(--text-secondary)]">
+        {count === 0 ? `No ${noun}s chosen` : `${count} ${count === 1 ? noun : `${noun}s`} chosen`}
+      </p>
+      <div className="flex gap-2">
+        {count > 0 ? (
+          <Button variant="ghost" onClick={onClear}>
+            Clear
+          </Button>
+        ) : null}
+        <Button variant="primary" onClick={onDone}>
+          Done
+        </Button>
+      </div>
     </div>
   );
 }
@@ -368,102 +485,108 @@ function Results({
   const series = byPeriod.rows.slice(0, 4);
 
   return (
-    <Card>
-      <CardHeader
-        title="Result"
-        description={`${result.rows.length.toLocaleString('en-GB')} values from DHIS2 in ${(result.durationMs / 1000).toFixed(1)} s`}
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <div role="tablist" aria-label="View" className="flex rounded-[var(--radius-md)] border p-0.5">
-              {(['table', 'chart'] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === value}
-                  onClick={() => setView(value)}
-                  className={cn(
-                    'rounded-[calc(var(--radius-md)-2px)] px-2.5 py-1 text-[12px] font-medium',
-                    view === value ? 'bg-[var(--ink-100)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]',
-                  )}
-                >
-                  {value === 'table' ? 'Table' : 'Chart'}
-                </button>
+    <Card className="flex flex-col gap-5 p-5 sm:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">Result</h2>
+          <p className="mt-1 text-[12px] text-[var(--text-tertiary)]">
+            {result.rows.length.toLocaleString('en-GB')} values from DHIS2 in {(result.durationMs / 1000).toFixed(1)} s
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="tablist" aria-label="View" className="flex rounded-full border bg-[var(--surface-sunken)] p-1">
+            {(['table', 'chart'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={view === value}
+                onClick={() => setView(value)}
+                className={cn(
+                  'rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors',
+                  view === value ? 'bg-[var(--surface)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+                )}
+              >
+                {value === 'table' ? 'Table' : 'Chart'}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" onClick={downloadTable}>Download table</Button>
+          <Button size="sm" onClick={downloadValues}>Download values</Button>
+          <Button size="sm" variant="ghost" onClick={copyUrl}>{copied ? 'Copied' : 'Copy DHIS2 query'}</Button>
+        </div>
+      </div>
+
+      {result.rows.length === 0 ? (
+        <EmptyState title="DHIS2 has no values for this selection." description="Try other periods, or areas higher up the hierarchy." />
+      ) : view === 'table' ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {table.fixed.map((text) => (
+                <Badge key={text} tone="neutral">{text}</Badge>
               ))}
             </div>
-            <Button size="sm" onClick={downloadTable}>Download table</Button>
-            <Button size="sm" onClick={downloadValues}>Download values</Button>
-            <Button size="sm" variant="ghost" onClick={copyUrl}>{copied ? 'Copied' : 'Copy DHIS2 query'}</Button>
+            <Select label="Across the top" value={across} onChange={(event) => setAcross(event.target.value as Across)} className="w-[180px]">
+              <option value="pe">Periods</option>
+              <option value="ou">Areas</option>
+              <option value="dx">Data</option>
+            </Select>
           </div>
-        }
-      />
-      <CardBody>
-        {result.rows.length === 0 ? (
-          <EmptyState title="DHIS2 has no values for this selection." description="Try other periods, or areas higher up the hierarchy." />
-        ) : view === 'table' ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="flex flex-wrap gap-1.5">
-                {table.fixed.map((text) => (
-                  <Badge key={text} tone="neutral">{text}</Badge>
-                ))}
-              </div>
-              <Select label="Across the top" value={across} onChange={(event) => setAcross(event.target.value as Across)} className="w-[180px]">
-                <option value="pe">Periods</option>
-                <option value="ou">Areas</option>
-                <option value="dx">Data</option>
-              </Select>
-            </div>
-            <div className="max-h-[560px] overflow-auto">
-              <TableWrap>
-                <thead>
-                  <tr>
-                    {table.rowHeaders.map((header) => (
-                      <Th key={header}>{header}</Th>
-                    ))}
-                    {table.columns.map((column) => (
-                      <Th key={column.id} align="right">
-                        {column.name}
-                      </Th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {table.rows.map((row) => (
-                    <Tr key={row.key}>
-                      {row.label.map((text, index) => (
-                        <Td key={index} className="text-[12px]">
-                          {text}
-                        </Td>
-                      ))}
-                      {row.cells.map((cell, index) => (
-                        <Td key={index} align="right" numeric className="text-[12px]">
-                          {cell === null ? <span className="text-[var(--text-tertiary)]">–</span> : fmt.format(cell)}
-                        </Td>
-                      ))}
-                    </Tr>
+          <ScrollArea maxHeight={600}>
+            <TableWrap>
+              <thead>
+                <tr>
+                  {table.rowHeaders.map((header, index) => (
+                    <Th key={header} className={cn(index === 0 && 'left-0 z-20')}>
+                      {header}
+                    </Th>
                   ))}
-                </tbody>
-              </TableWrap>
-            </div>
-          </div>
-        ) : chartable ? (
-          <div className="flex flex-col gap-2">
-            <LineChart
-              labels={byPeriod.columns.map((column) => column.name)}
-              series={series.map((row) => ({ id: row.key, label: row.label.join(' · '), values: row.cells }))}
-              height={280}
-            />
-            {byPeriod.rows.length > 4 ? (
-              <p className="text-[12px] text-[var(--text-tertiary)]">
-                The chart shows the first 4 of {byPeriod.rows.length} series. The table has them all.
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <Bars pivot={byPeriod} />
-        )}
-      </CardBody>
+                  {table.columns.map((column) => (
+                    <Th key={column.id} align="right" className="whitespace-nowrap">
+                      {column.name}
+                    </Th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {table.rows.map((row) => (
+                  <Tr key={row.key}>
+                    {row.label.map((text, index) => (
+                      <Td
+                        key={index}
+                        className={cn('text-[13px]', index === 0 && 'sticky left-0 z-[1] bg-[var(--surface)] font-medium')}
+                      >
+                        {text}
+                      </Td>
+                    ))}
+                    {row.cells.map((cell, index) => (
+                      <Td key={index} align="right" numeric className="text-[13px]">
+                        {cell === null ? <span className="text-[var(--text-tertiary)]">–</span> : fmt.format(cell)}
+                      </Td>
+                    ))}
+                  </Tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          </ScrollArea>
+        </div>
+      ) : chartable ? (
+        <div className="flex flex-col gap-3">
+          <LineChart
+            labels={byPeriod.columns.map((column) => column.name)}
+            series={series.map((row) => ({ id: row.key, label: row.label.join(' · '), values: row.cells }))}
+            height={320}
+          />
+          {byPeriod.rows.length > 4 ? (
+            <p className="text-[12px] text-[var(--text-tertiary)]">
+              The chart shows the first 4 of {byPeriod.rows.length} series. The table has them all.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <Bars pivot={byPeriod} />
+      )}
     </Card>
   );
 }

@@ -20,7 +20,10 @@ const TABS = [
 export function AdminNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Administration" className="mb-6 flex items-center gap-1 border-b">
+    <nav
+      aria-label="Administration"
+      className="-mx-4 mb-7 flex items-center gap-1 overflow-x-auto border-b px-4 [scrollbar-width:none] sm:mx-0 sm:px-0"
+    >
       {TABS.map((tab) => {
         const active = pathname === tab.href;
         return (
@@ -29,7 +32,7 @@ export function AdminNav() {
             href={tab.href}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors',
               active
                 ? 'border-[var(--brand-600)] text-[var(--text-primary)]'
                 : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',

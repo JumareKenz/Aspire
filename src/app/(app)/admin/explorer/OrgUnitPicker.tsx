@@ -68,7 +68,7 @@ export function OrgUnitPicker({
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
-      <div className="max-h-[300px] overflow-y-auto rounded-[var(--radius-md)] border py-1">
+      <div className="max-h-[calc(100dvh-300px)] min-h-[240px] overflow-y-auto rounded-[var(--radius-lg)] border py-1.5">
         {error ? <p className="px-3 py-2 text-[12px] text-[var(--concern-600)]">{error}</p> : null}
         {searching && results ? (
           results.length === 0 ? (
@@ -174,7 +174,7 @@ function Row({
 }) {
   return (
     <div
-      className={cn('flex items-center gap-1.5 py-1 pr-2 text-[12px] hover:bg-[var(--surface-sunken)]', checked && 'bg-[var(--brand-050)]')}
+      className={cn('flex items-center gap-2 py-1.5 pr-3 text-[13px] hover:bg-[var(--surface-sunken)]', checked && 'bg-[var(--brand-050)]')}
       style={{ paddingLeft: 8 + depth * 16 }}
     >
       {expandable ? (

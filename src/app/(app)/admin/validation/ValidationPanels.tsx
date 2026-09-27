@@ -6,11 +6,12 @@ import type { OutlierRow, RuleViolation } from '@/services/validation';
 import type { Catalogue, CatalogueItem, TreeNode } from '@/services/explorer';
 import { Badge } from '@/design/primitives/Badge';
 import { Button } from '@/design/primitives/Button';
-import { Card, CardBody } from '@/design/primitives/Card';
+import { Card } from '@/design/primitives/Card';
 import { Select, TextInput } from '@/design/primitives/Field';
 import { EmptyState, ErrorState } from '@/design/primitives/States';
 import { TableWrap, Td, Th, Tr } from '@/design/primitives/Table';
 import { callApi, saveText, toCsv } from '../explorer/api';
+import { Chip, FieldGroup, ScrollArea } from '../ui';
 import { periodLabel, recentPeriods } from '../explorer/periods';
 
 const fmt = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 });
@@ -72,19 +73,27 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
   const differences = s ? s.mismatched + s.onlyAspire + s.onlyDhis2 : 0;
 
   return (
-    <Card>
-      <CardBody className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <Card className="flex flex-col gap-6 p-5 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-5">
           {s ? (
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-              <p className="text-[22px] font-semibold tracking-tight">
-                {s.matched.toLocaleString('en-GB')} of {s.compared.toLocaleString('en-GB')}
-                <span className="ml-2 text-[13px] font-normal text-[var(--text-secondary)]">values identical to DHIS2</span>
-              </p>
-              <Badge tone={differences === 0 ? 'positive' : 'concern'}>
-                {differences === 0 ? 'No differences' : `${differences} differences`}
-              </Badge>
-              <span className="text-[12px] text-[var(--text-tertiary)]">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <p className="text-[28px] font-semibold leading-none tracking-[-0.02em]">
+                  {s.matched.toLocaleString('en-GB')}
+                  <span className="text-[var(--text-tertiary)]"> / {s.compared.toLocaleString('en-GB')}</span>
+                </p>
+                <p className="text-[14px] text-[var(--text-secondary)]">values identical to DHIS2</p>
+                <Badge tone={differences === 0 ? 'positive' : 'concern'}>
+                  {differences === 0 ? 'No differences' : `${differences} differences`}
+                </Badge>
+              </div>
+              <div className="h-2 max-w-xl overflow-hidden rounded-full bg-[var(--ink-100)]" aria-hidden="true">
+                <div
+                  className={differences === 0 ? 'h-full rounded-full bg-[var(--status-fill-positive)]' : 'h-full rounded-full bg-[var(--status-fill-warning)]'}
+                  style={{ width: `${s.compared === 0 ? 0 : (s.matched / s.compared) * 100}%` }}
+                />
+              </div>
+              <span className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
                 {s.indicators} indicators · {s.orgUnits} areas · {result!.periods.map(periodLabel).join(' and ')} · largest difference{' '}
                 {s.maxDifference < 0.000001 ? 'under 0.000001' : fmt.format(s.maxDifference)} · checked{' '}
                 {new Date(result!.reconciledAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -103,7 +112,7 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
 
         {result ? (
           <>
-            <div className="flex flex-wrap items-end gap-3 border-t pt-4">
+            <div className="flex flex-wrap items-end gap-3 border-t pt-6">
               <Select label="Show" value={show} onChange={(event) => { setShow(event.target.value as typeof show); setVisible(PAGE); }} className="w-[200px]">
                 <option value="compared">Values compared</option>
                 <option value="differences">Differences only</option>
@@ -141,7 +150,8 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
               <EmptyState title={show === 'differences' ? 'No differences. Every compared value matches DHIS2.' : 'Nothing matches these filters.'} />
             ) : (
               <>
-                <TableWrap>
+                <ScrollArea>
+              <TableWrap>
                   <thead>
                     <tr>
                       <Th>Indicator</Th>
@@ -174,6 +184,7 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
                     ))}
                   </tbody>
                 </TableWrap>
+              </ScrollArea>
                 {rows.length > visible ? (
                   <div className="flex justify-center">
                     <Button size="sm" onClick={() => setVisible((count) => count + PAGE)}>
@@ -185,7 +196,6 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
             )}
           </>
         ) : null}
-      </CardBody>
     </Card>
   );
 }
@@ -273,24 +283,23 @@ export function OutlierPanel({
   }
 
   return (
-    <Card>
-      <CardBody className="flex flex-col gap-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <div className="flex flex-col gap-2">
+    <Card className="flex flex-col gap-6 p-5 sm:p-7">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
+          <FieldGroup title="What to check">
             <TextInput
-              label="Data elements to check"
+              label="Data elements"
               placeholder="Search, e.g. New FP Acceptors or Deliveries"
               value={text}
               onFocus={loadCatalogue}
               onChange={(event) => setText(event.target.value)}
             />
             {matches.length > 0 ? (
-              <ul className="max-h-[200px] overflow-y-auto rounded-[var(--radius-md)] border">
+              <ul className="max-h-[220px] overflow-y-auto rounded-[var(--radius-lg)] border shadow-[var(--shadow-sm)]">
                 {matches.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between gap-2 border-b px-2.5 py-1.5 text-left text-[12px] last:border-b-0 hover:bg-[var(--surface-sunken)]"
+                      className="flex w-full items-center justify-between gap-3 border-b px-3 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-[var(--surface-sunken)]"
                       onClick={() => {
                         setChosen((list) => (list.some((entry) => entry.id === item.id) || list.length >= 20 ? list : [...list, item]));
                         setText('');
@@ -303,20 +312,17 @@ export function OutlierPanel({
                 ))}
               </ul>
             ) : null}
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {chosen.map((item) => (
-                <span key={item.id} className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border bg-[var(--surface-sunken)] py-0.5 pl-2 pr-1 text-[12px]">
+                <Chip key={item.id} onRemove={() => setChosen((list) => list.filter((entry) => entry.id !== item.id))}>
                   {item.name}
-                  <button type="button" aria-label={`Remove ${item.name}`} className="rounded px-1 text-[var(--text-tertiary)] hover:bg-[var(--ink-100)]" onClick={() => setChosen((list) => list.filter((entry) => entry.id !== item.id))}>
-                    ×
-                  </button>
-                </span>
+                </Chip>
               ))}
               {chosen.length === 0 ? <span className="text-[12px] text-[var(--text-tertiary)]">Choose up to 20 data elements.</span> : null}
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="LGA" value={area} onChange={(event) => setArea(event.target.value)} className="col-span-2">
+          </FieldGroup>
+          <FieldGroup title="Where and when">
+            <Select label="LGA" value={area} onChange={(event) => setArea(event.target.value)}>
               {[...new Set(areas.map((unit) => unit.group))].map((group) => (
                 <optgroup key={group} label={group}>
                   {areas
@@ -329,17 +335,21 @@ export function OutlierPanel({
                 </optgroup>
               ))}
             </Select>
-            <TextInput label="From" type="date" value={start} onChange={(event) => setStart(event.target.value)} />
-            <TextInput label="To" type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <TextInput label="From" type="date" value={start} onChange={(event) => setStart(event.target.value)} />
+              <TextInput label="To" type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
+            </div>
+          </FieldGroup>
+          <FieldGroup title="How strict">
             <Select label="Method" value={algorithm} onChange={(event) => setAlgorithm(event.target.value as typeof algorithm)}>
               <option value="MOD_Z_SCORE">Modified z-score (robust)</option>
               <option value="Z_SCORE">Z-score</option>
               <option value="MIN_MAX">Outside min–max limits</option>
             </Select>
             <TextInput label="Threshold" type="number" min={1} max={10} step={0.5} value={threshold} disabled={algorithm === 'MIN_MAX'} onChange={(event) => setThreshold(event.target.value)} />
-          </div>
+          </FieldGroup>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
           <p className="text-[12px] text-[var(--text-tertiary)]">
             A modified z-score of 3 or more marks a value far from that facility&rsquo;s usual reporting.
           </p>
@@ -372,6 +382,7 @@ export function OutlierPanel({
                   Download (CSV)
                 </Button>
               </div>
+              <ScrollArea>
               <TableWrap>
                 <thead>
                   <tr>
@@ -407,11 +418,11 @@ export function OutlierPanel({
                   ))}
                 </tbody>
               </TableWrap>
+              </ScrollArea>
               {rows.length > 200 ? <p className="text-[12px] text-[var(--text-tertiary)]">Showing 200 here; the download has all {rows.length}.</p> : null}
             </>
           )
         ) : null}
-      </CardBody>
     </Card>
   );
 }
@@ -486,9 +497,8 @@ export function RuleCheckPanel({ connected, defaultPeriod }: { connected: boolea
   }
 
   return (
-    <Card>
-      <CardBody className="flex flex-col gap-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_180px]">
+    <Card className="flex flex-col gap-6 p-5 sm:p-7">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_200px]">
           <Select label="Form" value={form} onChange={(event) => setForm(event.target.value)} disabled={!forms}>
             {forms === null ? <option>Loading forms…</option> : null}
             {(forms ?? []).map((entry) => (
@@ -533,7 +543,7 @@ export function RuleCheckPanel({ connected, defaultPeriod }: { connected: boolea
             ))}
           </Select>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
           <p className="text-[12px] text-[var(--text-tertiary)]">
             Rules are checked for one area and month at a time. The NHMIS 2019 and 2025 forms are not shared with this account, so their rules cannot run yet.
           </p>
@@ -550,6 +560,7 @@ export function RuleCheckPanel({ connected, defaultPeriod }: { connected: boolea
               <p className="text-[12px] text-[var(--text-secondary)]">
                 {result.violations.length} {result.violations.length === 1 ? 'rule' : 'rules'} broken for {result.unit} in {periodLabel(period)}
               </p>
+              <ScrollArea>
               <TableWrap>
                 <thead>
                   <tr>
@@ -585,10 +596,10 @@ export function RuleCheckPanel({ connected, defaultPeriod }: { connected: boolea
                   ))}
                 </tbody>
               </TableWrap>
+              </ScrollArea>
             </>
           )
         ) : null}
-      </CardBody>
     </Card>
   );
 }

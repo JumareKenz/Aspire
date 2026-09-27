@@ -1,17 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { requirePermission } from '@/auth/server';
-import { can } from '@/auth/rbac';
-import { isInScope } from '@/auth/rbac';
+import { can, isInScope } from '@/auth/rbac';
 import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { PageHeader } from '@/design/patterns/PageHeader';
 import { Badge } from '@/design/primitives/Badge';
-import { Card, CardBody, CardHeader } from '@/design/primitives/Card';
-import { SectionHeading } from '@/design/primitives/Meta';
+import { Card } from '@/design/primitives/Card';
 import { TableWrap, Td, Th, Tr } from '@/design/primitives/Table';
+import { cn } from '@/design/primitives/cn';
 import { getValidationOverview } from '@/services/validation';
 import { defaultPeriodId } from '@/services/scorecards';
 import { AdminNav } from '../AdminNav';
+import { ToolTabs } from '../ui';
 import { OutlierPanel, ReconciliationPanel, RuleCheckPanel } from './ValidationPanels';
 
 export const metadata: Metadata = { title: 'Data validation' };
@@ -43,12 +44,18 @@ function relativeAge(iso: string | null): string {
   return `${Math.round(hours / 24)} days ago`;
 }
 
+type Tone = 'positive' | 'warning' | 'concern' | 'neutral';
+
 export default async function ValidationPage() {
   const user = await requirePermission('admin.view');
   const [overview, units, defaultPeriod] = await Promise.all([getValidationOverview(), listOrgUnits(), defaultPeriodId()]);
   const connected = overview.source.mode === 'DHIS2' && overview.source.url !== null;
   const lastRun = overview.runs[0] ?? null;
   const reconciliation = overview.reconciliation;
+  const differences = reconciliation
+    ? reconciliation.summary.mismatched + reconciliation.summary.onlyAspire + reconciliation.summary.onlyDhis2
+    : null;
+
   // Outlier detection runs per LGA (see runOutlierCheck), grouped by state.
   const stateName = new Map(units.filter((unit) => unit.level === 'STATE').map((unit) => [unit.id, unit.name]));
   const areas = units
@@ -56,9 +63,55 @@ export default async function ValidationPage() {
     .map((unit) => ({ id: unit.id, name: unit.name, group: stateName.get(unit.parentId ?? '') ?? '' }))
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
 
-  const maxByDimension = Math.max(1, ...overview.findings.byDimension.map((entry) => entry.count));
-  const maxByPeriod = Math.max(1, ...overview.findings.byPeriod.map((entry) => entry.count));
-  const maxByLevel = Math.max(1, ...overview.findings.byLevel.map((entry) => entry.count));
+  const findings = overview.findings;
+  const quality: ReactNode = (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <Panel
+        title="By type of problem"
+        aside={
+          <div className="flex flex-wrap gap-1.5">
+            <Badge tone="concern">{findings.bySeverity.HIGH.toLocaleString('en-GB')} high</Badge>
+            <Badge tone="warning">{findings.bySeverity.MEDIUM.toLocaleString('en-GB')} medium</Badge>
+            <Badge tone="neutral">{findings.bySeverity.LOW.toLocaleString('en-GB')} low</Badge>
+          </div>
+        }
+      >
+        <BarList rows={findings.byDimension.map((entry) => ({ label: DIMENSION_LABELS[entry.dimension] ?? entry.dimension, value: entry.count }))} />
+      </Panel>
+      <Panel title="By level" description="Where in the hierarchy the problems were found.">
+        <BarList rows={findings.byLevel.map((entry) => ({ label: LEVEL_LABELS[entry.level] ?? entry.level, value: entry.count }))} />
+      </Panel>
+      <Panel title="By indicator" description="Indicators with the most open findings.">
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Indicator</Th>
+              <Th align="right">Open</Th>
+              <Th align="right">High severity</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {findings.byIndicator.map((entry) => (
+              <Tr key={entry.indicator}>
+                <Td className="py-2.5 text-[13px]">{entry.indicator}</Td>
+                <Td align="right" numeric className="py-2.5 text-[13px]">{entry.count.toLocaleString('en-GB')}</Td>
+                <Td align="right" numeric className="py-2.5 text-[13px] text-[var(--text-secondary)]">{entry.high.toLocaleString('en-GB')}</Td>
+              </Tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      </Panel>
+      <Panel title="By quarter" description="Open findings for each reporting period.">
+        <BarList rows={findings.byPeriod.map((entry) => ({ label: entry.periodId, value: entry.count }))} />
+        <Link
+          href="/intelligence/data-quality"
+          className="mt-5 inline-flex items-center gap-1 text-[13px] font-medium text-[var(--brand-600)] hover:underline"
+        >
+          Review and resolve findings in the data-quality workspace →
+        </Link>
+      </Panel>
+    </div>
+  );
 
   return (
     <>
@@ -68,173 +121,126 @@ export default async function ValidationPage() {
       />
       <AdminNav />
 
-      <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Validation status">
-        <StatusCard label="Data source">
-          <p className="text-[14px] font-semibold">{connected ? 'DHIS2' : 'Demo data'}</p>
-          <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--text-tertiary)]">
-            {overview.source.url?.replace(/^https?:\/\//, '') ?? 'No instance connected'}
-          </p>
-        </StatusCard>
-        <StatusCard label="Last synchronisation">
-          {lastRun ? (
-            <>
-              <p className="flex items-center gap-2 text-[14px] font-semibold">
-                {relativeAge(lastRun.finishedAt ?? lastRun.startedAt)}
-                <Badge tone={lastRun.status === 'SUCCESS' ? 'positive' : lastRun.status === 'FAILED' ? 'concern' : 'neutral'}>
-                  {lastRun.status.toLowerCase()}
-                </Badge>
-              </p>
-              <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
-                {lastRun.observations.toLocaleString('en-GB')} values · {lastRun.orgUnits.toLocaleString('en-GB')} areas ·{' '}
+      <section className="mb-9 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Validation status">
+        <StatusTile
+          label="Data source"
+          tone={connected ? 'positive' : 'neutral'}
+          value={connected ? 'DHIS2 connected' : 'Demo data'}
+          detail={<span className="font-mono">{overview.source.url?.replace(/^https?:\/\//, '') ?? 'No instance connected'}</span>}
+        />
+        <StatusTile
+          label="Last synchronisation"
+          tone={!lastRun ? 'neutral' : lastRun.status === 'SUCCESS' ? 'positive' : lastRun.status === 'FAILED' ? 'concern' : 'neutral'}
+          value={lastRun ? relativeAge(lastRun.finishedAt ?? lastRun.startedAt) : 'Never run'}
+          detail={
+            lastRun ? (
+              <>
+                {lastRun.status === 'SUCCESS' ? 'Succeeded' : lastRun.status === 'FAILED' ? 'Failed' : 'Running'} ·{' '}
+                {lastRun.observations.toLocaleString('en-GB')} values ·{' '}
                 <Link href="/admin" className="text-[var(--brand-600)] hover:underline">history</Link>
-              </p>
-            </>
-          ) : (
-            <p className="text-[14px] font-semibold">Never run</p>
-          )}
-        </StatusCard>
-        <StatusCard label="Agreement with DHIS2">
-          {reconciliation ? (
-            <>
-              <p className="text-[14px] font-semibold">
-                {reconciliation.summary.matched.toLocaleString('en-GB')} of {reconciliation.summary.compared.toLocaleString('en-GB')} identical
-              </p>
-              <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">Checked {relativeAge(reconciliation.reconciledAt)}</p>
-            </>
-          ) : (
-            <p className="text-[14px] font-semibold">Not checked yet</p>
-          )}
-        </StatusCard>
-        <StatusCard label="Reporting completeness">
-          {overview.reporting.records > 0 ? (
-            <p className="text-[14px] font-semibold">{overview.reporting.records.toLocaleString('en-GB')} submission records</p>
-          ) : (
-            <>
-              <p className="text-[14px] font-semibold">Not available</p>
-              <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">The source holds no form-submission records.</p>
-            </>
-          )}
-        </StatusCard>
+              </>
+            ) : null
+          }
+        />
+        <StatusTile
+          label="Agreement with DHIS2"
+          tone={differences === null ? 'neutral' : differences === 0 ? 'positive' : 'concern'}
+          value={
+            reconciliation
+              ? `${reconciliation.summary.matched.toLocaleString('en-GB')} of ${reconciliation.summary.compared.toLocaleString('en-GB')} identical`
+              : 'Not checked yet'
+          }
+          detail={reconciliation ? `Checked ${relativeAge(reconciliation.reconciledAt)}` : 'Run the check in Reconciliation'}
+        />
+        <StatusTile
+          label="Reporting completeness"
+          tone={overview.reporting.records > 0 ? 'positive' : 'warning'}
+          value={overview.reporting.records > 0 ? `${overview.reporting.records.toLocaleString('en-GB')} records` : 'Not available'}
+          detail={overview.reporting.records > 0 ? 'Form-submission records held' : 'The source holds no form-submission records'}
+        />
       </section>
 
-      <section className="mb-8">
-        <SectionHeading description="ASPIRE's stored figures compared with the values DHIS2 itself returns, for a fixed sample of indicators, areas at every level and quarters.">
-          Reconciliation with DHIS2
-        </SectionHeading>
-        <ReconciliationPanel initial={reconciliation} canRun={connected && can(user.role, 'admin.sync')} />
-      </section>
-
-      <section className="mb-8">
-        <SectionHeading
-          description={`${overview.findings.open.toLocaleString('en-GB')} open findings from the checks ASPIRE runs on every sync. Each is reviewed and resolved in the data-quality workspace.`}
-        >
-          ASPIRE quality checks
-        </SectionHeading>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader
-              title="By type of problem"
-              action={
-                <div className="flex gap-1.5">
-                  <Badge tone="concern">{overview.findings.bySeverity.HIGH.toLocaleString('en-GB')} high</Badge>
-                  <Badge tone="warning">{overview.findings.bySeverity.MEDIUM.toLocaleString('en-GB')} medium</Badge>
-                  <Badge tone="neutral">{overview.findings.bySeverity.LOW.toLocaleString('en-GB')} low</Badge>
-                </div>
-              }
-            />
-            <CardBody>
-              <BarList
-                rows={overview.findings.byDimension.map((entry) => ({
-                  label: DIMENSION_LABELS[entry.dimension] ?? entry.dimension,
-                  value: entry.count,
-                }))}
-                max={maxByDimension}
-              />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="By level" description="Where in the hierarchy the problems were found." />
-            <CardBody>
-              <BarList
-                rows={overview.findings.byLevel.map((entry) => ({ label: LEVEL_LABELS[entry.level] ?? entry.level, value: entry.count }))}
-                max={maxByLevel}
-              />
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="By indicator" description="Indicators with the most open findings." />
-            <CardBody>
-              <TableWrap>
-                <thead>
-                  <tr>
-                    <Th>Indicator</Th>
-                    <Th align="right">Open</Th>
-                    <Th align="right">High</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.findings.byIndicator.map((entry) => (
-                    <Tr key={entry.indicator}>
-                      <Td className="text-[12px]">{entry.indicator}</Td>
-                      <Td align="right" numeric className="text-[12px]">{entry.count.toLocaleString('en-GB')}</Td>
-                      <Td align="right" numeric className="text-[12px]">{entry.high.toLocaleString('en-GB')}</Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </TableWrap>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="By quarter" description="Open findings for each reporting period." />
-            <CardBody>
-              <BarList rows={overview.findings.byPeriod.map((entry) => ({ label: entry.periodId, value: entry.count }))} max={maxByPeriod} />
-              <p className="mt-3 text-[12px]">
-                <Link href="/intelligence/data-quality" className="text-[var(--brand-600)] hover:underline">
-                  Review and resolve findings in the data-quality workspace →
-                </Link>
-              </p>
-            </CardBody>
-          </Card>
-        </div>
-      </section>
-
-      <section className="mb-8">
-        <SectionHeading description="DHIS2's own statistical check on raw facility-month values, one LGA at a time. It finds the single facility report that an LGA or state total would hide.">
-          DHIS2 outlier detection
-        </SectionHeading>
-        <OutlierPanel areas={areas} connected={connected} defaultPeriod={defaultPeriod} />
-      </section>
-
-      <section className="mb-8">
-        <SectionHeading description="Runs a form's validation rules in DHIS2 for one area and month, such as ANC 4th visits not exceeding total ANC attendance.">
-          DHIS2 validation rules
-        </SectionHeading>
-        <RuleCheckPanel connected={connected} defaultPeriod={defaultPeriod} />
-      </section>
+      <ToolTabs
+        tabs={[
+          {
+            id: 'reconciliation',
+            label: 'Reconciliation',
+            badge: differences === null ? undefined : differences === 0 ? '✓' : differences,
+            hint: "ASPIRE's stored figures compared with the values DHIS2 itself returns, for a fixed sample of indicators, areas at every level from facility to Federal, and two quarters.",
+            content: <ReconciliationPanel initial={reconciliation} canRun={connected && can(user.role, 'admin.sync')} />,
+          },
+          {
+            id: 'quality',
+            label: 'Quality checks',
+            badge: findings.open.toLocaleString('en-GB'),
+            hint: `${findings.open.toLocaleString('en-GB')} open findings from the checks ASPIRE runs on every synchronisation. Each is reviewed and resolved in the data-quality workspace.`,
+            content: quality,
+          },
+          {
+            id: 'outliers',
+            label: 'Outlier detection',
+            hint: "DHIS2's own statistical check on raw facility-month values, one LGA at a time. It finds the single facility report that an LGA or state total would hide.",
+            content: <OutlierPanel areas={areas} connected={connected} defaultPeriod={defaultPeriod} />,
+          },
+          {
+            id: 'rules',
+            label: 'Validation rules',
+            hint: "Runs a form's validation rules in DHIS2 for one area and month, such as ANC 4th visits not exceeding total ANC attendance.",
+            content: <RuleCheckPanel connected={connected} defaultPeriod={defaultPeriod} />,
+          },
+        ]}
+      />
     </>
   );
 }
 
-function StatusCard({ label, children }: { label: string; children: React.ReactNode }) {
+const TONE_DOT: Record<Tone, string> = {
+  positive: 'bg-[var(--status-fill-positive)]',
+  warning: 'bg-[var(--status-fill-warning)]',
+  concern: 'bg-[var(--status-fill-concern)]',
+  neutral: 'bg-[var(--status-fill-none)]',
+};
+
+function StatusTile({ label, value, detail, tone }: { label: string; value: string; detail: ReactNode; tone: Tone }) {
   return (
-    <Card className="p-4">
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-[var(--text-tertiary)]">{label}</p>
+    <Card className="flex flex-col gap-2 p-5">
+      <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-[var(--text-tertiary)]">
+        <span aria-hidden="true" className={cn('h-2 w-2 rounded-full', TONE_DOT[tone])} />
+        {label}
+      </p>
+      <p className="text-[17px] font-semibold leading-snug tracking-[-0.01em] text-[var(--text-primary)]">{value}</p>
+      {detail ? <p className="line-clamp-2 break-words text-[12px] leading-relaxed text-[var(--text-tertiary)]">{detail}</p> : null}
+    </Card>
+  );
+}
+
+function Panel({ title, description, aside, children }: { title: string; description?: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <Card className="flex flex-col gap-5 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[14px] font-semibold text-[var(--text-primary)]">{title}</h3>
+          {description ? <p className="mt-1 text-[12px] text-[var(--text-tertiary)]">{description}</p> : null}
+        </div>
+        {aside}
+      </div>
       {children}
     </Card>
   );
 }
 
-function BarList({ rows, max }: { rows: Array<{ label: string; value: number }>; max: number }) {
-  if (rows.length === 0) return <p className="text-[12px] text-[var(--text-tertiary)]">No open findings.</p>;
+function BarList({ rows }: { rows: Array<{ label: string; value: number }> }) {
+  if (rows.length === 0) return <p className="text-[13px] text-[var(--text-tertiary)]">No open findings.</p>;
+  const max = Math.max(1, ...rows.map((row) => row.value));
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-3.5">
       {rows.map((row) => (
-        <li key={row.label} className="grid grid-cols-[minmax(0,180px)_minmax(0,1fr)_64px] items-center gap-3 text-[12px]">
+        <li key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-[13px] sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_72px] sm:items-center">
           <span className="truncate text-[var(--text-secondary)]">{row.label}</span>
-          <span className="h-2 rounded-full bg-[var(--ink-100)]">
-            <span className="block h-full rounded-full bg-[var(--brand-500)]" style={{ width: `${(row.value / max) * 100}%` }} />
+          <span className="numeric text-right font-medium sm:order-last">{row.value.toLocaleString('en-GB')}</span>
+          <span className="col-span-2 h-2 rounded-full bg-[var(--ink-100)] sm:col-span-1">
+            <span className="block h-full rounded-full bg-[var(--brand-500)]" style={{ width: `${Math.max(2, (row.value / max) * 100)}%` }} />
           </span>
-          <span className="numeric text-right">{row.value.toLocaleString('en-GB')}</span>
         </li>
       ))}
     </ul>

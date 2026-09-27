@@ -52,8 +52,8 @@ export function DataPicker({
   const selectedIds = new Set(selected.map((item) => item.id));
 
   return (
-    <div className="flex flex-col gap-3">
-      <div role="tablist" aria-label="Kind of data" className="grid grid-cols-2 rounded-[var(--radius-md)] border p-0.5">
+    <div className="flex flex-col gap-4">
+      <div role="tablist" aria-label="Kind of data" className="grid grid-cols-2 rounded-full border bg-[var(--surface-sunken)] p-1">
         {(['INDICATOR', 'DATA_ELEMENT'] as const).map((value) => (
           <button
             key={value}
@@ -65,10 +65,10 @@ export function DataPicker({
               setGroup('');
             }}
             className={cn(
-              'rounded-[calc(var(--radius-md)-2px)] px-2 py-1.5 text-[12px] font-medium transition-colors',
+              'rounded-full px-3 py-2 text-[13px] font-medium transition-colors',
               kind === value
-                ? 'bg-[var(--brand-600)] text-[var(--text-inverse)]'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--ink-100)]',
+                ? 'bg-[var(--surface)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]'
+                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
           >
             {value === 'INDICATOR' ? 'Indicators' : 'Data elements'}
@@ -100,14 +100,14 @@ export function DataPicker({
         {matches.length.toLocaleString('en-GB')} {kind === 'INDICATOR' ? 'indicators' : 'data elements'}
         {matches.length > SHOWN ? `, showing the first ${SHOWN}. Search to narrow the list.` : ''}
       </p>
-      <ul className="max-h-[340px] overflow-y-auto rounded-[var(--radius-md)] border" aria-label="Available data">
+      <ul className="max-h-[calc(100dvh-420px)] min-h-[240px] overflow-y-auto rounded-[var(--radius-lg)] border" aria-label="Available data">
         {matches.slice(0, SHOWN).map((item) => {
           const on = selectedIds.has(item.id);
           return (
             <li key={item.id} className="border-b last:border-b-0">
               <label
                 className={cn(
-                  'flex cursor-pointer items-start gap-2 px-2.5 py-2 text-[12px] hover:bg-[var(--surface-sunken)]',
+                  'flex cursor-pointer items-start gap-3 px-3.5 py-3 text-[13px] hover:bg-[var(--surface-sunken)]',
                   on && 'bg-[var(--brand-050)]',
                 )}
               >
