@@ -11,9 +11,11 @@ import { TableWrap, Td, Th, Tr } from '@/design/primitives/Table';
 import { cn } from '@/design/primitives/cn';
 import { getValidationOverview } from '@/services/validation';
 import { defaultPeriodId } from '@/services/scorecards';
+import { getFacilityScorecard } from '@/services/validationScorecard';
 import { AdminNav } from '../AdminNav';
 import { ToolTabs } from '../ui';
 import { OutlierPanel, ReconciliationPanel, RuleCheckPanel } from './ValidationPanels';
+import { ScorecardPanel } from './ValidationScorecard';
 
 export const metadata: Metadata = { title: 'Data validation' };
 export const dynamic = 'force-dynamic';
@@ -48,7 +50,12 @@ type Tone = 'positive' | 'warning' | 'concern' | 'neutral';
 
 export default async function ValidationPage() {
   const user = await requirePermission('admin.view');
-  const [overview, units, defaultPeriod] = await Promise.all([getValidationOverview(), listOrgUnits(), defaultPeriodId()]);
+  const [overview, units, defaultPeriod, scorecard] = await Promise.all([
+    getValidationOverview(),
+    listOrgUnits(),
+    defaultPeriodId(),
+    getFacilityScorecard(user, null),
+  ]);
   const connected = overview.source.mode === 'DHIS2' && overview.source.url !== null;
   const lastRun = overview.runs[0] ?? null;
   const reconciliation = overview.reconciliation;
@@ -63,9 +70,18 @@ export default async function ValidationPage() {
     .map((unit) => ({ id: unit.id, name: unit.name, group: stateName.get(unit.parentId ?? '') ?? '' }))
     .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
 
+  // The scorecard opens on the whole programme, a state or an LGA.
+  const scorecardAreas = [
+    ...units
+      .filter((unit) => (unit.level === 'COUNTRY' || unit.level === 'STATE') && isInScope(user.scope, unit.path))
+      .sort((a, b) => (a.level === b.level ? a.name.localeCompare(b.name) : a.level === 'COUNTRY' ? -1 : 1))
+      .map((unit) => ({ id: unit.id, name: unit.level === 'COUNTRY' ? `${unit.name} (both states)` : unit.name, group: '' })),
+    ...areas.map((area) => ({ ...area, name: area.name.replace(/ Local Government Area$/, '') })),
+  ];
+
   const findings = overview.findings;
   const quality: ReactNode = (
-    <div className="flex flex-col gap-5">
+    <div key="quality" className="flex flex-col gap-5">
     <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
       <div>
         <h3 className="text-[14px] font-semibold text-[var(--text-primary)]">Share with the DHIS2 team</h3>
@@ -186,7 +202,7 @@ export default async function ValidationPage() {
             label: 'Reconciliation',
             badge: differences === null ? undefined : differences === 0 ? '✓' : differences,
             hint: "ASPIRE's stored figures compared with the values DHIS2 itself returns, for a fixed sample of indicators, areas at every level from facility to Federal, and two quarters.",
-            content: <ReconciliationPanel initial={reconciliation} canRun={connected && can(user.role, 'admin.sync')} />,
+            content: <ReconciliationPanel key="reconciliation" initial={reconciliation} canRun={connected && can(user.role, 'admin.sync')} />,
           },
           {
             id: 'quality',
@@ -199,13 +215,22 @@ export default async function ValidationPage() {
             id: 'outliers',
             label: 'Outlier detection',
             hint: "DHIS2's own statistical check on raw facility-month values, one LGA at a time. It finds the single facility report that an LGA or state total would hide.",
-            content: <OutlierPanel areas={areas} connected={connected} defaultPeriod={defaultPeriod} />,
+            content: <OutlierPanel key="outlier" areas={areas} connected={connected} defaultPeriod={defaultPeriod} />,
+          },
+          {
+            id: 'scorecard',
+            label: 'Facility scorecard',
+            badge: scorecard?.summary.passRate == null ? undefined : `${scorecard.summary.passRate.toFixed(0)}%`,
+            hint: "Every facility's monthly report checked against DHIS2's validation rules, such as ANC 4th visits not exceeding total ANC attendance. It shows which facilities, LGAs and rules account for the inconsistencies.",
+            content: (
+              <ScorecardPanel key="scorecard" initial={scorecard} areas={scorecardAreas} connected={connected} canRun={can(user.role, 'admin.sync')} />
+            ),
           },
           {
             id: 'rules',
-            label: 'Validation rules',
-            hint: "Runs a form's validation rules in DHIS2 for one area and month, such as ANC 4th visits not exceeding total ANC attendance.",
-            content: <RuleCheckPanel connected={connected} defaultPeriod={defaultPeriod} />,
+            label: 'Check one facility',
+            hint: "Runs a form's validation rules in DHIS2 live for one area and month, to confirm a correction or look at the figures behind a violation.",
+            content: <RuleCheckPanel key="rulecheck" connected={connected} defaultPeriod={defaultPeriod} />,
           },
         ]}
       />

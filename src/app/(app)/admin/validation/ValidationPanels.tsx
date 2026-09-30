@@ -545,7 +545,7 @@ export function RuleCheckPanel({ connected, defaultPeriod }: { connected: boolea
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
           <p className="text-[12px] text-[var(--text-tertiary)]">
-            Rules are checked for one area and month at a time. The NHMIS 2019 and 2025 forms are not shared with this account, so their rules cannot run yet.
+            Rules are checked for one area and month at a time, on the forms this account has data access to.
           </p>
           <Button variant="primary" onClick={run} disabled={running || !unit || !form || !period}>
             {running ? 'Validating…' : 'Run validation rules'}

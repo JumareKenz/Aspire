@@ -4,6 +4,7 @@ import { listIndicators } from '@/data/repositories/registry';
 import { lastSuccessfulSync } from '@/data/repositories/syncRuns';
 import { readDhis2Config } from '@/data/sources/dhis2/client';
 import { getCatalogue } from './explorer';
+import { scorecardWindow } from './validationScorecard';
 
 /**
  * The data quality export: every open finding, tied back to the DHIS2
@@ -46,6 +47,16 @@ const TYPES: Record<string, { label: string; meaning: string; action: string }> 
 };
 const SEVERITY: Record<string, string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
 const LEVEL: Record<string, string> = { COUNTRY: 'Federal', STATE: 'State', LGA: 'LGA', WARD: 'Ward', FACILITY: 'Facility' };
+const OPERATORS: Record<string, string> = {
+  equal_to: '=',
+  not_equal_to: '≠',
+  greater_than: '>',
+  greater_than_or_equal_to: '≥',
+  less_than: '<',
+  less_than_or_equal_to: '≤',
+  compulsory_pair: 'reported together with',
+  exclusive_pair: 'not reported with',
+};
 const SEVERITY_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
 const BRAND = 'FF16543D';
@@ -273,6 +284,99 @@ export async function buildQualityWorkbook(): Promise<{ buffer: Buffer; filename
   }
   style(types, [28, 60, 64], [2, 3]);
 
+  // ── DHIS2 validation rules, per facility and month ─────────────────────
+  const window = await scorecardWindow();
+  const [checks, violations] = window
+    ? await Promise.all([
+        query<{ org_unit_id: string; path: string; reported: boolean; violations: number }>(
+          `SELECT c.org_unit_id, u.path, c.reported, c.violations
+             FROM validation_checks c JOIN org_units u ON u.id = c.org_unit_id
+            WHERE c.dataset_id = $1 AND c.period_id = ANY($2) AND u.active`,
+          [window.datasetId, window.months],
+        ),
+        query<{
+          path: string; period_id: string; rule_name: string; importance: string | null; operator: string | null;
+          left_desc: string | null; left_value: number | null; right_desc: string | null; right_value: number | null;
+        }>(
+          `SELECT u.path, v.period_id, v.rule_name, v.importance, v.operator, v.left_desc, v.left_value, v.right_desc, v.right_value
+             FROM validation_violations v JOIN org_units u ON u.id = v.org_unit_id
+            WHERE v.dataset_id = $1 AND v.period_id = ANY($2) AND u.active
+            ORDER BY u.path, v.period_id, v.rule_name`,
+          [window.datasetId, window.months],
+        ),
+      ])
+    : [[], []];
+  const reportsChecked = checks.filter((check) => check.reported).length;
+  const reportsClean = checks.filter((check) => check.reported && check.violations === 0).length;
+  if (checks.length > 0) {
+    const monthName = (id: string) => `${id.slice(0, 4)}-${id.slice(4)}`;
+    const broken = violations.map((violation) => ({ ...violation, where: lineage(violation.path) }));
+    const last = broken.length + 1;
+    const vRange = (column: string) => `'Rule violations'!$${column}$2:$${column}$${Math.max(last, 2)}`;
+
+    const byLga = workbook.addWorksheet('Validation by LGA');
+    byLga.addRow(['State', 'LGA', 'Facilities', 'Reports checked', 'Passed every rule', 'Pass rate', 'Rule violations', 'Months not reported']);
+    const lgaChecks = new Map<string, { state: string; lga: string; facilities: Set<string>; reported: number; clean: number; missing: number }>();
+    for (const check of checks) {
+      const where = lineage(check.path);
+      const key = `${where.STATE}|${where.LGA}`;
+      const entry = lgaChecks.get(key) ?? { state: where.STATE, lga: where.LGA, facilities: new Set<string>(), reported: 0, clean: 0, missing: 0 };
+      entry.facilities.add(check.org_unit_id);
+      if (!check.reported) entry.missing += 1;
+      else {
+        entry.reported += 1;
+        if (check.violations === 0) entry.clean += 1;
+      }
+      lgaChecks.set(key, entry);
+    }
+    const rate = (entry: { reported: number; clean: number }) => (entry.reported ? entry.clean / entry.reported : 2);
+    const scored = [...lgaChecks.values()].sort((a, b) => rate(a) - rate(b));
+    scored.forEach((entry, index) => {
+      const r = index + 2;
+      byLga.addRow([
+        entry.state, entry.lga, entry.facilities.size, entry.reported, entry.clean,
+        { formula: `IF(D${r}=0,"",E${r}/D${r})`, result: entry.reported ? entry.clean / entry.reported : '' },
+        {
+          formula: `COUNTIFS(${vRange('A')},A${r},${vRange('B')},B${r})`,
+          result: broken.filter((violation) => violation.where.STATE === entry.state && violation.where.LGA === entry.lga).length,
+        },
+        entry.missing,
+      ]);
+      byLga.getCell(`F${r}`).numFmt = '0.0%';
+    });
+    style(byLga, [16, 28, 12, 16, 18, 12, 16, 20]);
+    byLga.autoFilter = { from: 'A1', to: `H${scored.length + 1}` };
+
+    const byRule = workbook.addWorksheet('Validation by rule');
+    byRule.addRow(['Validation rule', 'Importance', 'What the rule expects', 'Violations', 'Facilities']);
+    const ruleGroups = new Map<string, typeof broken>();
+    for (const violation of broken) ruleGroups.set(violation.rule_name, [...(ruleGroups.get(violation.rule_name) ?? []), violation]);
+    [...ruleGroups].sort((a, b) => b[1].length - a[1].length).forEach(([name, items], index) => {
+      const r = index + 2;
+      const sample = items[0];
+      byRule.addRow([
+        name,
+        SEVERITY[sample.importance ?? ''] ?? '',
+        sample.left_desc && sample.right_desc ? `${clean(sample.left_desc)} ${OPERATORS[sample.operator ?? ''] ?? 'vs'} ${clean(sample.right_desc)}` : '',
+        { formula: `COUNTIF(${vRange('F')},A${r})`, result: items.length },
+        new Set(items.map((item) => item.path)).size,
+      ]);
+    });
+    style(byRule, [54, 12, 64, 12, 12], [1, 3]);
+
+    const sheet = workbook.addWorksheet('Rule violations');
+    sheet.addRow(['State', 'LGA', 'Ward', 'Facility', 'Month', 'Validation rule', 'Importance', 'Left side', 'Reported', 'Should be', 'Right side', 'Reported']);
+    for (const violation of broken) {
+      sheet.addRow([
+        violation.where.STATE, violation.where.LGA, violation.where.WARD, violation.where.FACILITY, monthName(violation.period_id), violation.rule_name,
+        SEVERITY[violation.importance ?? ''] ?? '', clean(violation.left_desc), violation.left_value,
+        OPERATORS[violation.operator ?? ''] ?? violation.operator ?? '', clean(violation.right_desc), violation.right_value,
+      ]);
+    }
+    style(sheet, [12, 22, 22, 38, 10, 50, 12, 30, 11, 12, 30, 11]);
+    sheet.autoFilter = { from: 'A1', to: `L${last}` };
+  }
+
   // ── Summary ─────────────────────────────────────────────────────────────
   [46, 16, 16, 60].forEach((width, index) => (summary.getColumn(index + 1).width = width));
   const text = (cell: string, value: string, font: Partial<ExcelJS.Font> = {}) => {
@@ -296,6 +400,13 @@ export async function buildQualityWorkbook(): Promise<{ buffer: Buffer; filename
   put(4, 'Open findings', `COUNTA(${range('A')})`, detail.length);
   put(5, 'Indicators affected', `COUNTA('By indicator'!A2:A${ranked.length + 1})`, ranked.length);
   put(6, 'LGAs affected', `COUNTA('By area'!B2:B${lgaRows.length + 1})`, lgaRows.length);
+  if (reportsChecked > 0) {
+    text('A7', 'Facility monthly reports passing every DHIS2 validation rule', { size: 11 });
+    summary.getCell('B7').value = reportsClean / reportsChecked;
+    summary.getCell('B7').font = { name: FONT, size: 11, bold: true };
+    summary.getCell('B7').numFmt = '0.0%';
+    text('C7', `${reportsClean.toLocaleString('en-GB')} of ${reportsChecked.toLocaleString('en-GB')} reports`, { color: { argb: 'FF55554F' } });
+  }
 
   const table = (start: number, title: string, labels: string[], column: string) => {
     ['A', 'B', 'C'].forEach((col, index) => {
@@ -317,7 +428,7 @@ export async function buildQualityWorkbook(): Promise<{ buffer: Buffer; filename
     return start + labels.length + 2;
   };
   const presentTypes = typeOrder.sort((a, b) => count((d) => d.type === b) - count((d) => d.type === a));
-  let next = table(8, 'By problem type', presentTypes, 'C');
+  let next = table(9, 'By problem type', presentTypes, 'C');
   next = table(next, 'By severity', ['High', 'Medium', 'Low'], 'D');
 
   const notes = [
@@ -326,6 +437,9 @@ export async function buildQualityWorkbook(): Promise<{ buffer: Buffer; filename
     '• By area: the LGAs with the most issues, busiest first. Filter the Findings sheet by LGA to see the detail.',
     '• Findings: one row per issue, with the state, LGA, ward and facility, the period, and the figures behind it. Use the filter arrows to narrow it down.',
     '• Problem types: what each type means and what to check in DHIS2.',
+    ...(reportsChecked > 0
+      ? ["• Validation by LGA, Validation by rule, Rule violations: DHIS2's own validation rules run on every facility's monthly report. A report passes when it breaks no rule; months a facility did not report are counted separately."]
+      : []),
     '• Counts on this sheet and on By indicator and By area are formulas over the Findings sheet.',
   ];
   notes.forEach((note, index) => {

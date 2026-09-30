@@ -14,6 +14,7 @@
     "sync": "tsx --env-file-if-exists=.env.local scripts/sync.ts",
     "registry:apply-sources": "tsx --env-file-if-exists=.env.local scripts/apply-indicator-sources.ts",
     "reconcile": "tsx --env-file-if-exists=.env.local scripts/reconcile.ts",
+    "validate:facilities": "tsx --env-file-if-exists=.env.local scripts/validate-facilities.ts",
     "eval:ai": "tsx --env-file-if-exists=.env.local scripts/evaluate-intelligence.ts"
   },
   "dependencies": {

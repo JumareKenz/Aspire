@@ -168,3 +168,35 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   message       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_started ON sync_runs(started_at DESC);
+
+-- DHIS2 validation rules, run per facility and month.
+--
+-- One row per facility-month checked, whether or not anything failed: a
+-- scorecard has to tell a facility that passed from one that was never
+-- checked, and from one that submitted nothing to check.
+CREATE TABLE IF NOT EXISTS validation_checks (
+  org_unit_id   TEXT NOT NULL,
+  dataset_id    TEXT NOT NULL,
+  period_id     TEXT NOT NULL,            -- monthly, YYYYMM
+  reported      BOOLEAN NOT NULL,         -- the form was submitted for the month
+  violations    INTEGER NOT NULL DEFAULT 0,
+  checked_at    TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (org_unit_id, dataset_id, period_id)
+);
+CREATE INDEX IF NOT EXISTS idx_validation_checks_period ON validation_checks(period_id);
+
+CREATE TABLE IF NOT EXISTS validation_violations (
+  org_unit_id   TEXT NOT NULL,
+  dataset_id    TEXT NOT NULL,
+  period_id     TEXT NOT NULL,
+  rule_id       TEXT NOT NULL,
+  rule_name     TEXT NOT NULL,
+  importance    TEXT,
+  operator      TEXT,
+  left_desc     TEXT,
+  left_value    DOUBLE PRECISION,
+  right_desc    TEXT,
+  right_value   DOUBLE PRECISION,
+  PRIMARY KEY (org_unit_id, dataset_id, period_id, rule_id)
+);
+CREATE INDEX IF NOT EXISTS idx_validation_violations_rule ON validation_violations(rule_id);
