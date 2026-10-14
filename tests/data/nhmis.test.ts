@@ -40,7 +40,7 @@ describe('provenance from DHIS2 metadata', () => {
   it('verifies against the form DHIS2 describes, and excludes what is not on it', async () => {
     const requested = mockFetch((url) => {
       if (url.pathname.endsWith('/dataSets')) {
-        expect(url.searchParams.get('filter')).toBe(`id:in:[${FORM}]`);
+        expect(url.searchParams.get('filter')).toBe(`id:in:[${FORM},lyVV9bPLlVy]`);
         return {
           dataSets: [
             {
@@ -85,7 +85,7 @@ describe('provenance from DHIS2 metadata', () => {
     expect(result.reportable.map((indicator) => indicator.id).sort()).toEqual(['anc4-coverage', 'low-birth-weight', 'still-birth-rate']);
     expect(result.metadata.dataElements.map((entry) => entry.id)).not.toContain('trackerDe01');
     // The NHMIS 2025 form, not approved, was never even asked for.
-    expect(requested.some((url) => url.pathname.endsWith('/dataSets') && !url.search.includes(FORM))).toBe(false);
+    expect(requested.some((url) => url.pathname.endsWith('/dataSets') && url.search.includes('dTyJ3IK8vbz'))).toBe(false);
 
     const refs = dataElementRefs(result.provenance, new Set(result.reportable.map((indicator) => indicator.id)), []);
     // Element totals, plus the single options an indicator uses.
@@ -143,5 +143,27 @@ describe('data element values', () => {
     const federal = values.filter((entry) => entry.orgUnitId === 'ng');
     expect(federal).toEqual([{ dx: 'sumElement1', orgUnitId: 'ng', periodId: '202512', value: 200 }]);
     expect(values.some((entry) => entry.periodId === '202510')).toBe(false);
+  });
+});
+
+describe('an unreliable gateway', () => {
+  it('retries a 504 once, and does not retry other failures', async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response('busy', { status: 504, statusText: 'Gateway Time-out' })
+          : new Response(JSON.stringify({ version: '2.40.11' }), { status: 200 });
+      }),
+    );
+    expect((await new Dhis2Adapter(config).testConnection()).ok).toBe(true);
+    expect(calls).toBe(2);
+
+    calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => { calls += 1; return new Response('no', { status: 401, statusText: 'Unauthorized' }); }));
+    expect((await new Dhis2Adapter(config).testConnection()).ok).toBe(false);
+    expect(calls).toBe(1);
   });
 });

@@ -73,10 +73,32 @@ export class Dhis2Client {
     return this.config.baseUrl;
   }
 
+  /**
+   * One retry, after a short pause, when the gateway in front of DHIS2 says it
+   * is overloaded (502/503/504). The staging server does this intermittently;
+   * a second attempt usually succeeds. Our own timeouts are not retried: a
+   * request that already used its whole budget would only use it again.
+   */
   private async request<T>(
     path: string,
     params?: Record<string, string | string[]>,
     timeoutMs = this.config.timeoutMs,
+  ): Promise<T> {
+    try {
+      return await this.attempt<T>(path, params, timeoutMs);
+    } catch (error) {
+      if (error instanceof Dhis2Error && error.status !== null && [502, 503, 504].includes(error.status)) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        return this.attempt<T>(path, params, timeoutMs);
+      }
+      throw error;
+    }
+  }
+
+  private async attempt<T>(
+    path: string,
+    params: Record<string, string | string[]> | undefined,
+    timeoutMs: number,
   ): Promise<T> {
     const url = new URL(`${this.config.baseUrl}/api/${path.replace(/^\/+/, '')}`);
     for (const [key, value] of Object.entries(params ?? {})) {

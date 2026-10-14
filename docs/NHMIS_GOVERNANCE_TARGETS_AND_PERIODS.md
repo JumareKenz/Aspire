@@ -12,7 +12,7 @@ Names are never used ("NHMIS …", "adolescent …" prove nothing).
 
 | Piece | Where |
 |---|---|
-| Approved forms (`O82o1WlMisO`, NHMIS 2019 only — the 2025 form is not approved) | `src/config/nhmis.ts` |
+| Approved forms: NHMIS 2019 (`O82o1WlMisO`) and NHMIS 2013 (`lyVV9bPLlVy`, approved 2026-10-14); the 2025 form is not approved | `src/config/nhmis.ts` |
 | Exceptions (empty) | `NHMIS_PROVENANCE_EXCEPTIONS` in the same file |
 | Expression parser and classifier (pure) | `src/core/registry/provenance.ts` |
 | Verification at sync | `src/data/sync/governance.ts`, called first in `runSync` |
@@ -37,11 +37,22 @@ Admin → Indicators shows the operand that blocked it.
 against DHIS2, so pages report nothing. Run a sync (Admin → System, or wait for
 the 03:00 cron) immediately after deploying.
 
-**Expected first result on staging (to confirm after that sync):** indicators
-whose DHIS2 definitions use a population denominator — mCPR (`M8XUQAbJ3us`) is
-the likely case — will be `UNVERIFIED`. Whether a population denominator is
-acceptable is a programme decision; if it is, add an exception naming the
-operand, with the approver and date.
+**Result on staging (dry run, 2026-10-14):** 18 indicators verified; mCPR
+excluded because its denominator is census Total Population × 0.22
+(`JiqRpGPcjXz`, Population Estimates); three have no source mapped. The national
+instance's definitions of ANC timing, skilled birth attendance, PNC and HIV
+testing in ANC combine 2013- and 2019-form elements, which is why the 2013 form
+is approved; its elements hold well under 1% of values from 2025. Approving the
+population denominator for mCPR is an open programme decision.
+
+**Sync safety.** Provenance is saved straight after verification, before the
+analytics requests, so a later failure leaves the stored figures of verified
+indicators reportable. A sync that imports no values is recorded as failed
+(DHIS2 sometimes answers with an empty table). Gateway errors (502/503/504) are
+retried once. Each run's message lists per-phase timings; on the Hobby plan the
+whole sync must finish within 300 s (about 210 s on staging with
+`DHIS2_TIMEOUT_MS=120000`). If it approaches the limit, lower
+`ASPIRE_MONTHLY_HISTORY`.
 
 ## 2. Data elements
 

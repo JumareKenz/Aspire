@@ -41,13 +41,30 @@ export async function runSync(): Promise<SyncResult> {
   const months = analysisMonths();
   const registry = await listIndicators(true);
 
+  // Time per phase, recorded on the run: the sync must fit one function call.
+  const phases: string[] = [];
+  let mark = Date.now();
+  const phase = (label: string) => {
+    phases.push(`${label} ${Math.round((Date.now() - mark) / 1000)}s`);
+    mark = Date.now();
+  };
+
   try {
     const orgUnits = await adapter.fetchOrgUnits();
     const datasets = await adapter.fetchDatasets();
 
     // Governance first: only indicators verified against the approved NHMIS
     // forms are fetched at all, so unverified figures never enter the store.
+    phase('hierarchy');
     const governance = await verifyProvenance(adapter, registry);
+    // Provenance is recorded as soon as it is known, before the slow analytics
+    // requests: if those fail, the stored figures of verified indicators stay
+    // reportable rather than every page going blank.
+    if ((await getDataMode()) === adapter.mode) {
+      await replaceCatalogue(governance.forms, approvedElements(governance), adapter.mode === 'DEMO');
+      await saveProvenance(governance.provenance);
+    }
+    phase('metadata');
     const indicators = governance.reportable;
     if (indicators.length === 0) {
       const unverified = governance.provenance.filter((entry) => entry.status === 'UNVERIFIED').length;
@@ -60,13 +77,23 @@ export async function runSync(): Promise<SyncResult> {
     const request = { orgUnits, indicators, periods };
 
     const observations = await adapter.fetchObservations(request);
+    // DHIS2 analytics can answer with an empty table rather than an error.
+    // A sync that imported nothing is a failure, not a success: recording it
+    // as one hid a week of empty nightly runs.
+    if (!observations.some((observation) => !observation.disaggregation)) {
+      throw new Error('The source returned no values for any verified indicator in the analysis window. Nothing was imported; the stored data is unchanged.');
+    }
+    phase('quarters');
     const reporting = await adapter.fetchReporting({ ...request, datasets });
+    phase('reporting');
 
     // Monthly values are requested as months from the source, which aggregates
     // each by its own rules; nothing monthly is derived from a quarter.
     const monthlyRequest = { orgUnits, indicators, periods: months, includeBreakdowns: false };
     const monthlyObservations = months.length > 0 ? await adapter.fetchObservations(monthlyRequest) : [];
+    phase('months');
     const monthlyReporting = months.length > 0 ? await adapter.fetchReporting({ ...monthlyRequest, datasets }) : [];
+    phase('monthly reporting');
 
     const elementIds = new Set(governance.metadata.dataElements.map((element) => element.id));
     const configured = (await listCatalogue())
@@ -81,6 +108,7 @@ export async function runSync(): Promise<SyncResult> {
         governance.metadata.dataElements.map((element) => [element.id, element.aggregationType]),
       ),
     });
+    phase('data elements');
 
     // Switching source replaces the geography outright; see replaceGeography.
     let note = '';
@@ -94,13 +122,7 @@ export async function runSync(): Promise<SyncResult> {
     await upsertPeriods([...periods, ...months]);
     await upsertOrgUnits(orgUnits);
     await deactivateMissingOrgUnits(orgUnits.map((unit) => unit.id));
-    await replaceCatalogue(
-      governance.forms,
-      governance.metadata.dataElements
-        .map((element) => ({ ...element, formIds: element.formIds.filter((id) => governance.forms.some((form) => form.id === id)) }))
-        .filter((element) => element.formIds.length > 0),
-      adapter.mode === 'DEMO',
-    );
+    await replaceCatalogue(governance.forms, approvedElements(governance), adapter.mode === 'DEMO');
     await saveProvenance(governance.provenance);
     await upsertObservations([...observations, ...monthlyObservations]);
     await upsertReporting([...reporting, ...monthlyReporting]);
@@ -119,6 +141,7 @@ export async function runSync(): Promise<SyncResult> {
     const totals = observations.filter((observation) => !observation.disaggregation);
     const findings = scanQuality(orgUnits, totals, reporting, periods, indicators);
     await replaceFindings(findings);
+    phase('store and quality scan');
 
     const excluded = governance.provenance.filter((entry) => entry.status === 'UNVERIFIED' || entry.status === 'UNMAPPED');
     const governanceNote =
@@ -135,7 +158,7 @@ export async function runSync(): Promise<SyncResult> {
       orgUnits: orgUnits.length,
       observations: observations.length,
       findings: findings.length,
-      message: `Synchronised ${periods.length} quarters and ${months.length} months from ${adapter.label}. ${governanceNote}${note}`,
+      message: `Synchronised ${periods.length} quarters and ${months.length} months from ${adapter.label}. ${governanceNote}${note} Timings: ${phases.join(', ')}.`,
     });
 
     return {
@@ -258,4 +281,12 @@ function latestPeriodWithData(
     if (withData.has(periods[i].id)) return periods[i].id;
   }
   return null;
+}
+
+/** The source's data elements, limited to the approved forms that carry them. */
+function approvedElements(governance: Awaited<ReturnType<typeof verifyProvenance>>) {
+  const approved = new Set(governance.forms.map((form) => form.id));
+  return governance.metadata.dataElements
+    .map((element) => ({ ...element, formIds: element.formIds.filter((id) => approved.has(id)) }))
+    .filter((element) => element.formIds.length > 0);
 }

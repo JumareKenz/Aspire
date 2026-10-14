@@ -28,6 +28,12 @@ export const APPROVED_NHMIS_FORMS: ApprovedForm[] = [
     basis:
       'Confirmed by the DHIS2 provider on 2026-09-29 as the NHMIS form shared with the platform, with completion records. The NHMIS 2025 form is not yet approved and is deliberately absent.',
   },
+  {
+    id: 'lyVV9bPLlVy',
+    name: 'NHMIS Monthly Summary (version 2013)',
+    basis:
+      "Approved by the programme owner on 2026-10-14. The national instance's own indicator definitions for ANC timing, skilled birth attendance, postnatal care and HIV testing in ANC combine the 2013 and 2019 versions of the form; the 2013 elements hold well under 1% of values for Bauchi and Sokoto from 2025.",
+  },
 ];
 
 /**
