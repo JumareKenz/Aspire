@@ -213,7 +213,7 @@ export function IndicatorEditor({
                   <p className="text-[var(--text-secondary)]">
                     {PROVENANCE_META[detail.status].note}
                     {detail.sourceName ? ` Source: ${detail.sourceName}.` : ''} Checked{' '}
-                    {new Date(detail.checkedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}.
+                    {new Date(detail.checkedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })}.
                   </p>
                   {detail.reasons.length > 0 ? (
                     <ul className="list-disc space-y-1 pl-5 text-[var(--concern-700)]">

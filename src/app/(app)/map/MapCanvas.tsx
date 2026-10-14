@@ -165,8 +165,14 @@ export function MapCanvas({ data, periodId }: { data: MapData; periodId: string 
 
   // Label placement depends only on the geometry and the metric being shown,
   // so it is computed once per render of that pair rather than per shape.
+  // DHIS2 names every LGA "… Local Government Area"; labels drop the suffix
+  // so neighbouring names fit. Full names stay in titles and the panel.
   const labels = useMemo(
-    () => placeLabels(data.units, (unit) => valueFor(unit, metric)),
+    () =>
+      placeLabels(
+        data.units.map((unit) => ({ ...unit, name: unit.name.replace(/\s+Local Government Area$/i, '') })),
+        (unit) => valueFor(unit, metric),
+      ),
     [data.units, metric],
   );
 

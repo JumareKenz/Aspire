@@ -96,7 +96,7 @@ export function ReconciliationPanel({ initial, canRun }: { initial: Reconciliati
               <span className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
                 {s.indicators} indicators · {s.orgUnits} areas · {result!.periods.map(periodLabel).join(' and ')} · largest difference{' '}
                 {s.maxDifference < 0.000001 ? 'under 0.000001' : fmt.format(s.maxDifference)} · checked{' '}
-                {new Date(result!.reconciledAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
+                {new Date(result!.reconciledAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })}
               </span>
             </div>
           ) : (

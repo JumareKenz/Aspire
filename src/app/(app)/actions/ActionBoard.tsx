@@ -254,7 +254,7 @@ export function ActionBoard({
 
             <p className="border-t pt-3 text-[11px] text-[var(--text-tertiary)]">
               Raised by {selected.createdByName ?? 'unknown'} on{' '}
-              {new Date(selected.createdAt).toLocaleDateString('en-GB', { dateStyle: 'medium' })}
+              {new Date(selected.createdAt).toLocaleDateString('en-GB', { dateStyle: 'medium', timeZone: 'Africa/Lagos' })}
               {selected.periodId ? ` against ${selected.periodId}` : ''}.
             </p>
           </div>

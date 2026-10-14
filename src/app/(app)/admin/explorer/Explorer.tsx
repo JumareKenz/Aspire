@@ -204,7 +204,7 @@ export function Explorer({ source }: { source: string }) {
         {catalogue ? (
           <>
             {' '}· catalogue of {catalogue.items.length.toLocaleString('en-GB')} items loaded{' '}
-            {new Date(catalogue.loadedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} ·{' '}
+            {new Date(catalogue.loadedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' })} ·{' '}
             <button type="button" className="text-[var(--brand-600)] hover:underline" onClick={() => loadCatalogue(true)}>
               reload
             </button>

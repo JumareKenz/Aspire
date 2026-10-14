@@ -193,7 +193,9 @@ export function OverviewMap({
     const point = toScreen(area.cx, area.cy);
     return {
       orgUnitId: area.id,
-      name: area.name,
+      // DHIS2 names every LGA "… Local Government Area"; on the map the
+      // suffix only crowds out neighbouring labels.
+      name: area.name.replace(/\s+Local Government Area$/i, ''),
       score: area.score,
       status: area.status,
       changePoints: null,

@@ -17,7 +17,7 @@ export function DataModeBanner({
   lastSyncAt: string | null;
 }) {
   const synced = lastSyncAt
-    ? new Date(lastSyncAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+    ? new Date(lastSyncAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })
     : 'never';
 
   // The badge always shows; the explanation is progressively revealed as space
