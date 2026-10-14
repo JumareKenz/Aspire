@@ -118,6 +118,9 @@ out identical. `tests/api/permissions.test.ts` asserts both directions.
 | CSV export | as above | as above |
 | Intelligence question | `permittedLevels` | permitted org-unit set |
 | Cross-state comparison | — | `accessibleStates(user).length > 1` |
+| Overview map geometry | — | built from the user's scope root only |
+| Geography tree and search (`/api/orgunits`) | `permittedLevels` | `assertOrgUnitInScope` on the parent; results filtered by `isInScope` |
+| Target setting | `admin.manage` | `assertOrgUnitInScope`; programme-wide needs global scope |
 
 Note the two rows with a dash. Cross-state comparison is **not** role-gated:
 `geography.crossState` is granted to every role, because whether a user has two
@@ -134,7 +137,7 @@ hiding a link.
 | Vector | Guard | Result |
 |---|---|---|
 | Typing a route | `requireRoute()` | redirect to the user's landing page |
-| `?orgUnit=` in a URL | `resolvePageContext()` → `isInScope` | falls back to the user's own root |
+| `?orgUnit=` in a URL | `resolvePageContext()` → scope **and depth** | falls back to the user's own root (depth was not checked before October 2026) |
 | Org unit id to an API route | `assertOrgUnitInScope()` | 403 out of scope, 403 too deep, 404 unknown |
 | `?type=` on a report or export | `reportTypesFor(user, stateCount)` | 403 / 404 |
 | A question naming another state | `answerQuestion()` refusal | declines, names what it cannot show |

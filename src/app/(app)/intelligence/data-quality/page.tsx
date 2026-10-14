@@ -104,6 +104,8 @@ export default async function DataQualityPage({
           <ScopeBar
             orgUnits={context.orgUnitOptions}
             periods={context.periodOptions}
+            orgUnitPath={context.orgUnitPath}
+            deepestLevel={context.deepestLevel}
             orgUnitId={context.orgUnit.id}
             periodId={context.periodId}
           />

@@ -104,3 +104,20 @@ export function futurePeriods(startId: string, count: number): Period[] {
   }
   return result;
 }
+
+/** The quarter a monthly period falls in, e.g. 202602 → 2026Q1. Quarters and years map to themselves. */
+export function quarterOf(id: string): string {
+  const period = parsePeriod(id);
+  if (period.type !== 'MONTHLY') return id;
+  const month = Number(id.slice(4));
+  return `${id.slice(0, 4)}Q${Math.floor((month - 1) / 3) + 1}`;
+}
+
+/** The three monthly periods that make up a quarter, oldest first. */
+export function monthsOf(quarterId: string): string[] {
+  const period = parsePeriod(quarterId);
+  if (period.type !== 'QUARTERLY') throw new Error(`Not a quarterly period: ${quarterId}`);
+  const year = quarterId.slice(0, 4);
+  const first = (Number(quarterId.slice(5)) - 1) * 3 + 1;
+  return [first, first + 1, first + 2].map((month) => `${year}${pad(month)}`);
+}

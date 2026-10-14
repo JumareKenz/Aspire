@@ -150,6 +150,7 @@ export async function replaceGeography(next: OrgUnit[]): Promise<{ unmatchedUser
   }
 
   await execute('DELETE FROM observations');
+  await execute('DELETE FROM data_element_values');
   await execute('DELETE FROM reporting');
   await execute('DELETE FROM quality_findings');
   await execute("DELETE FROM targets WHERE org_unit_id <> ''");

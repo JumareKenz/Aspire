@@ -1,4 +1,5 @@
 import type { OrgLevel } from '../model/types';
+import type { TargetScope } from '../targets/resolve';
 
 /**
  * A named, versioned scoring methodology.
@@ -80,7 +81,10 @@ export interface IndicatorScore {
   domainId: string;
   /** Raw measured value in the indicator's own unit. Null when absent. */
   value: number | null;
-  target: number;
+  /** Null when no target applies to this area and period. */
+  target: number | null;
+  /** Where the target came from; null when there is none. */
+  targetScope: TargetScope | null;
   /** value/target as a percentage, direction-aware. Null when absent. */
   achievementPct: number | null;
   /** 0..100 after applying the methodology's scoring rule. Null when absent. */

@@ -21,6 +21,16 @@ import { experienceFor } from '@/auth/experience';
 import { ExecutiveBriefing } from './ExecutiveBriefing';
 import { accessibleStates, compareStates } from '@/services/states';
 import { StateComparisonPanel, StateSummaryRow } from '@/design/patterns/StateComparison';
+import { getOverviewMap } from '@/services/geography';
+import { getContributingElements, getDataElementReport } from '@/services/dataElements';
+import { getActiveMethodology } from '@/data/repositories/registry';
+import { explainOverall } from '@/core/scoring/explain';
+import type { Scorecard } from '@/core/scoring/types';
+import { OverviewMap, type MapSelectionSummary } from './OverviewMap';
+import { DomainCards } from './DomainCards';
+import { ReportingTabs } from './ReportingTabs';
+import { BreakdownButton } from './PerformanceBreakdown';
+import { LEVEL_LABEL } from '@/design/patterns/levels';
 
 export const metadata: Metadata = { title: 'Overview' };
 export const dynamic = 'force-dynamic';
@@ -30,9 +40,36 @@ export default async function OverviewPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const context = await resolvePageContext(await searchParams);
+  const context = await resolvePageContext(await searchParams, { monthly: true });
   const experience = experienceFor(context.user);
-  const overview = await getOverview(context.orgUnit.id, context.periodId);
+  const methodology = await getActiveMethodology();
+  // Everything below is computed for the one org unit and period in the URL,
+  // already resolved against the user's scope and depth.
+  const [overview, map, elements, elementReport] = await Promise.all([
+    getOverview(context.orgUnit.id, context.periodId),
+    getOverviewMap(context.scopeRoot, context.orgUnit, context.periodId, methodology.statusBands),
+    getContributingElements(context.orgUnit, context.periodId),
+    experience.detail === 'FULL' ? getDataElementReport(context.orgUnit, context.periodId) : Promise.resolve(null),
+  ]);
+  const parent = context.orgUnitPath.length > 1 ? context.orgUnitPath[context.orgUnitPath.length - 2] : null;
+  const mapSection = map ? (
+    <OverviewMap
+      map={map}
+      selectedId={context.orgUnit.id}
+      rootId={context.scopeRoot.id}
+      summary={overview ? summarise(overview.scorecard, LEVEL_LABEL[context.orgUnit.level], parent?.name ?? null) : null}
+    />
+  ) : null;
+  const scopeBar = (
+    <ScopeBar
+      orgUnits={context.orgUnitOptions}
+      periods={context.periodOptions}
+      orgUnitPath={context.orgUnitPath}
+      deepestLevel={context.deepestLevel}
+      orgUnitId={context.orgUnit.id}
+      periodId={context.periodId}
+    />
+  );
 
   // Cross-state comparison is offered on scope, never on role: it appears only
   // when the user actually holds more than one state, and only while they are
@@ -50,20 +87,16 @@ export default async function OverviewPage({
         <PageHeader
           title="Overview"
           description={`${context.orgUnit.name} · ${context.periodLabel}`}
-          controls={
-            <ScopeBar
-              orgUnits={context.orgUnitOptions}
-              periods={context.periodOptions}
-              orgUnitId={context.orgUnit.id}
-              periodId={context.periodId}
-            />
-          }
+          controls={scopeBar}
         />
+        {mapSection}
         <EmptyState
           title={`No SRHR performance can be reported for ${context.periodLabel}.`}
           description={
             overview
-              ? `Only ${Math.round(overview.scorecard.coverage * 100)}% of weighted indicators have data for this period, which is below the minimum the scoring methodology requires. Reporting for this period may still be open.`
+              ? overview.scorecard.domains.length === 0
+                ? 'No indicator has been verified against the approved NHMIS forms yet, so nothing can be reported. An administrator can run a synchronisation, which verifies every indicator, and review the result in Admin → Indicators.'
+                : `Only ${Math.round(overview.scorecard.coverage * 100)}% of weighted indicators have data for this period, which is below the minimum the scoring methodology requires. ${context.periodType === 'MONTHLY' ? 'Monthly figures exist only where the source holds values for the month; nothing is estimated from the quarter.' : 'Reporting for this period may still be open.'}`
               : 'This geography has no stored reporting. Try another period, or ask an administrator to run a synchronisation.'
           }
           action={
@@ -91,15 +124,9 @@ export default async function OverviewPage({
               status={overview.scorecard.methodologyStatus}
             />
           }
-          controls={
-            <ScopeBar
-              orgUnits={context.orgUnitOptions}
-              periods={context.periodOptions}
-              orgUnitId={context.orgUnit.id}
-              periodId={context.periodId}
-            />
-          }
+          controls={scopeBar}
         />
+        {mapSection}
         {comparison ? (
           <section className="mb-8" aria-labelledby="states-summary">
             <SectionHeading description="Both programme states, scored on the same methodology for this period.">
@@ -108,7 +135,30 @@ export default async function OverviewPage({
             <StateSummaryRow comparison={comparison} periodId={context.periodId} />
           </section>
         ) : null}
-        <ExecutiveBriefing data={overview} attentionLimit={experience.attentionLimit} />
+        <ExecutiveBriefing
+          data={overview}
+          attentionLimit={experience.attentionLimit}
+          headlineAction={
+            <BreakdownButton
+              label="the overall score"
+              title="Overall SRHR performance: how the score is made up"
+              explanation={explainOverall(overview.scorecard)}
+              domains={overview.scorecard.domains}
+              elements={elements}
+              orgUnitName={overview.scorecard.orgUnitName}
+              periodLabel={overview.scorecard.periodLabel}
+              overall
+            />
+          }
+          afterHeadline={
+            <section className="mb-9" aria-labelledby="domain-performance">
+              <SectionHeading description="Each domain's score against the on-track threshold. The information button shows the indicators behind it.">
+                <span id="domain-performance">Performance by domain</span>
+              </SectionHeading>
+              <DomainCards scorecard={overview.scorecard} elements={elements} />
+            </section>
+          }
+        />
       </>
     );
   }
@@ -132,15 +182,11 @@ export default async function OverviewPage({
             status={scorecard.methodologyStatus}
           />
         }
-        controls={
-          <ScopeBar
-            orgUnits={context.orgUnitOptions}
-            periods={context.periodOptions}
-            orgUnitId={context.orgUnit.id}
-            periodId={context.periodId}
-          />
-        }
+        controls={scopeBar}
       />
+
+      {/* Where? ----------------------------------------------------------- */}
+      {mapSection}
 
       {/* How are we doing? ---------------------------------------------- */}
       <section className="mb-8" aria-labelledby="how-are-we-doing">
@@ -149,7 +195,21 @@ export default async function OverviewPage({
         </h2>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
           <Card className="p-5">
-            <p className="text-[12px] text-[var(--text-tertiary)]">Overall SRHR performance</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12px] text-[var(--text-tertiary)]">
+                Overall SRHR performance · {scorecard.periodLabel}
+              </p>
+              <BreakdownButton
+                label="the overall score"
+                title="Overall SRHR performance: how the score is made up"
+                explanation={explainOverall(scorecard)}
+                domains={scorecard.domains}
+                elements={elements}
+                orgUnitName={scorecard.orgUnitName}
+                periodLabel={scorecard.periodLabel}
+                overall
+              />
+            </div>
             <div className="mt-2 flex flex-wrap items-end gap-3">
               <ScoreDisplay score={scorecard.overallScore} size="xl" status={scorecard.status} />
               <div className="mb-1 flex items-center gap-2">
@@ -233,6 +293,14 @@ export default async function OverviewPage({
         </div>
       </section>
 
+      {/* By domain ------------------------------------------------------- */}
+      <section className="mb-8" aria-labelledby="domain-performance">
+        <SectionHeading description="Each domain's score from the same scorecard, against the on-track threshold. The information button lists the indicators and data elements behind it.">
+          <span id="domain-performance">Performance by domain</span>
+        </SectionHeading>
+        <DomainCards scorecard={scorecard} elements={elements} />
+      </section>
+
       {/* How do the states compare? -------------------------------------- */}
       {comparison ? (
         <section className="mb-8" aria-labelledby="state-comparison">
@@ -240,6 +308,23 @@ export default async function OverviewPage({
             <span id="state-comparison">How the states compare</span>
           </SectionHeading>
           <StateComparisonPanel comparison={comparison} periodId={context.periodId} />
+        </section>
+      ) : null}
+
+      {/* Indicators and data elements ---------------------------------- */}
+      {elementReport ? (
+        <section className="mb-8" aria-labelledby="indicator-reporting">
+          <SectionHeading description="Indicators are scored against targets; data elements are the NHMIS counts behind them.">
+            <span id="indicator-reporting">Indicator and data element reporting</span>
+          </SectionHeading>
+          <Card className="p-4">
+            <ReportingTabs
+              scorecard={scorecard}
+              elements={elementReport}
+              reporting={reporting}
+              canOpenIndicator={can(context.user.role, 'performance.indicator')}
+            />
+          </Card>
         </section>
       ) : null}
 
@@ -347,4 +432,27 @@ export default async function OverviewPage({
       </section>
     </>
   );
+}
+
+/** The map's selected-area panel, from the page's own scorecard. */
+function summarise(scorecard: Scorecard, level: string, parentName: string | null): MapSelectionSummary {
+  const indicators = scorecard.domains.flatMap((domain) => domain.indicators);
+  return {
+    name: scorecard.orgUnitName,
+    level,
+    parentName,
+    periodLabel: scorecard.periodLabel,
+    score: scorecard.overallScore,
+    status: scorecard.status,
+    coverage: scorecard.coverage,
+    dataConfidence: scorecard.dataConfidence.score,
+    indicatorsWithData: indicators.filter((indicator) => indicator.value !== null).length,
+    indicatorsTotal: indicators.length,
+    domains: scorecard.domains.map((domain) => ({
+      id: domain.domainId,
+      name: domain.name,
+      score: domain.score,
+      status: domain.status,
+    })),
+  };
 }

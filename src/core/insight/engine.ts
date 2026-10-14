@@ -256,7 +256,7 @@ export function generateRecommendations(input: RecommendationInput): Recommendat
         { label: 'Overall score', value: String(child.overallScore) },
         ...decliningIndicators.map((indicator) => ({
           label: indicator.name,
-          value: `${indicator.value ?? '—'} against a target of ${indicator.target}${
+          value: `${indicator.value ?? '—'}${indicator.target === null ? ' (no target set)' : ` against a target of ${indicator.target}`}${
             indicator.trend.changePct === null ? '' : ` (${round(indicator.trend.changePct, 1)}% over ${indicator.trend.periods} periods)`
           }`,
         })),

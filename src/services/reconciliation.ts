@@ -14,7 +14,7 @@ import type { IndicatorDefinition } from '@/core/registry/types';
 import { isMapped } from '@/core/registry/mapping';
 import { query } from '@/data/db/client';
 import { getSetting, setSetting } from '@/data/repositories/settings';
-import { listIndicators } from '@/data/repositories/registry';
+import { listReportingIndicators } from '@/data/repositories/registry';
 import { Dhis2Client, readDhis2Config } from '@/data/sources/dhis2/client';
 
 const PERIODS = ['2025Q2', '2025Q4'];
@@ -99,7 +99,7 @@ export async function runReconciliation(): Promise<ReconciliationResult> {
   if (!config) throw new Error('DHIS2 is not configured: set DHIS2_BASE_URL and DHIS2_TOKEN.');
   const started = Date.now();
   const client = new Dhis2Client(config);
-  const indicators = (await listIndicators()).filter(isMapped);
+  const indicators = (await listReportingIndicators()).filter(isMapped);
   const units = await sampleUnits();
   const federal = units.find((unit) => unit.level === 'COUNTRY');
   const states = units.filter((unit) => unit.level === 'STATE');

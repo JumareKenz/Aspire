@@ -156,9 +156,9 @@ export function ScorecardTable({
                                 : indicator.value === null
                                   ? 'No value reported this period'
                                   : `${indicator.value}${suffix}`}
-                              {indicator.targetProvisional ? ' against a provisional target of ' : ' against a target of '}
-                              {indicator.target}
-                              {suffix}
+                              {indicator.target === null
+                                ? ' · no target set for this area and period'
+                                : `${indicator.targetProvisional ? ' against a provisional target of ' : ' against a target of '}${indicator.target}${suffix}`}
                             </span>
                           </Td>
                           <Td align="right" numeric className="text-[12px]">

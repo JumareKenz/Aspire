@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Reports' };
 export const dynamic = 'force-dynamic';
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const context = await resolvePageContext(await searchParams);
+  const context = await resolvePageContext(await searchParams, { monthly: true });
   const mode = await getDataMode();
   // Role decides which kinds of report exist for this user; scope decides
   // which of them they have the geography to produce.
@@ -28,6 +28,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <ScopeBar
             orgUnits={context.orgUnitOptions}
             periods={context.periodOptions}
+            orgUnitPath={context.orgUnitPath}
+            deepestLevel={context.deepestLevel}
             orgUnitId={context.orgUnit.id}
             periodId={context.periodId}
           />
@@ -48,7 +50,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           const href = `/reports/view?type=${type}&orgUnit=${context.orgUnit.id}&period=${context.periodId}`;
           return (
             <Card key={type} className="flex flex-col p-4">
-              <h2 className="text-[13px] font-semibold">{meta.title}</h2>
+              <h2 className="text-[13px] font-semibold">
+                {type === 'QUARTERLY_PERFORMANCE' && context.periodType === 'MONTHLY'
+                  ? 'Monthly SRHR performance report'
+                  : meta.title}
+              </h2>
               <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-secondary)]">
                 {meta.description}
               </p>

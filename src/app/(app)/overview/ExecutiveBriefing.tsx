@@ -27,9 +27,15 @@ import { SeverityPill } from '@/design/primitives/StatusPill';
 export function ExecutiveBriefing({
   data,
   attentionLimit,
+  headlineAction,
+  afterHeadline,
 }: {
   data: OverviewData;
   attentionLimit: number;
+  /** Placed beside the headline figure, e.g. its breakdown control. */
+  headlineAction?: React.ReactNode;
+  /** Rendered after the headline section, e.g. the domain cards. */
+  afterHeadline?: React.ReactNode;
 }) {
   const { scorecard, previous, ranking, insights, recommendations, contributions, reporting, history } =
     data;
@@ -51,9 +57,12 @@ export function ExecutiveBriefing({
       <section className="mb-9">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <div className="flex flex-col justify-center">
-            <p className="text-[12px] text-[var(--text-tertiary)]">
-              Overall SRHR performance · {scorecard.orgUnitName}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[12px] text-[var(--text-tertiary)]">
+                Overall SRHR performance · {scorecard.orgUnitName}
+              </p>
+              {headlineAction}
+            </div>
             <div className="mt-2 flex flex-wrap items-end gap-3">
               <ScoreDisplay score={scorecard.overallScore} size="xl" status={scorecard.status} />
               <div className="mb-1.5 flex items-center gap-2">
@@ -128,6 +137,8 @@ export function ExecutiveBriefing({
           </Card>
         </div>
       </section>
+
+      {afterHeadline}
 
       {/* What needs attention -------------------------------------------- */}
       <section className="mb-9">

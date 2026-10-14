@@ -59,7 +59,7 @@ export default async function PerformancePage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const context = await resolvePageContext(params);
+  const context = await resolvePageContext(params, { monthly: true });
   const experience = experienceFor(context.user);
   const scorecard = await getScorecard(context.orgUnit.id, context.periodId);
   const expandDomain = typeof params.domain === 'string' ? [params.domain] : undefined;
@@ -68,6 +68,8 @@ export default async function PerformancePage({
     <ScopeBar
       orgUnits={context.orgUnitOptions}
       periods={context.periodOptions}
+      orgUnitPath={context.orgUnitPath}
+      deepestLevel={context.deepestLevel}
       orgUnitId={context.orgUnit.id}
       periodId={context.periodId}
     />

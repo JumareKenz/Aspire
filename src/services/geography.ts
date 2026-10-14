@@ -4,8 +4,10 @@ import { geoMercator, geoPath } from 'd3-geo';
 import type { GeoPermissibleObjects } from 'd3-geo';
 import { listChildren } from '@/data/repositories/orgUnits';
 import { listFindings } from '@/data/repositories/findings';
-import { getChildScorecards } from './scorecards';
-import { previousPeriodId } from '@/core/model/periods';
+import { getChildScorecards, getScorecard } from './scorecards';
+import type { OrgUnit } from '@/core/model/types';
+import type { Scorecard } from '@/core/scoring/types';
+import { parsePeriod, previousPeriodId } from '@/core/model/periods';
 import { round } from '@/core/analytics/stats';
 import { env, envOr } from '@/lib/env';
 
@@ -394,5 +396,182 @@ export async function getMapData(orgUnitId: string, periodId: string): Promise<M
       return build(child, projected[0], projected[1], null);
     }),
     note: 'Schematic layout. Positions show how areas sit relative to one another; they are not administrative boundaries.',
+  };
+}
+
+/**
+ * The overview map: every LGA in the user's access, drawn with one shared
+ * projection so the camera can move from the programme to a state to an LGA
+ * without the geometry changing underneath it.
+ *
+ * The geometry is fixed by the user's *scope root*, not by the current
+ * selection: a Bauchi officer's map holds Bauchi's LGAs and nothing else,
+ * whatever they select, so there is no other state to zoom to, hover over or
+ * read a figure from. The selection only moves the camera.
+ *
+ * Colour is the overall score's status band from the scoring methodology —
+ * the same scorecards, from the same engine, as the cards beneath the map —
+ * and an area with no publishable score is drawn as "no data", never as low
+ * performance.
+ */
+export interface OverviewMapArea {
+  id: string;
+  name: string;
+  /** The state an LGA belongs to; null for a state. */
+  stateId: string | null;
+  path: string | null;
+  /** Projected bounds [[x0, y0], [x1, y1]]. */
+  bounds: [[number, number], [number, number]] | null;
+  cx: number;
+  cy: number;
+  area: number;
+  score: number | null;
+  status: 'ON_TRACK' | 'WATCH' | 'NEEDS_ATTENTION' | 'NO_DATA';
+  /** Indicators with a value, of those reported. */
+  reporting: { withData: number; total: number };
+  dataConfidence: number;
+}
+
+export interface OverviewMap {
+  width: number;
+  height: number;
+  states: OverviewMapArea[];
+  lgas: OverviewMapArea[];
+  /** Where the camera should be: the selected state and LGA, when there are. */
+  focus: { stateId: string | null; lgaId: string | null };
+  /** Areas in scope with no boundary to draw. */
+  missing: string[];
+  bands: { onTrack: number; watch: number };
+  periodLabel: string;
+}
+
+const OVERVIEW_WIDTH = 760;
+const OVERVIEW_HEIGHT = 440;
+
+function reportingOf(card: Scorecard | undefined): OverviewMapArea['reporting'] {
+  const indicators = card?.domains.flatMap((domain) => domain.indicators) ?? [];
+  return { withData: indicators.filter((indicator) => indicator.value !== null).length, total: indicators.length };
+}
+
+export async function getOverviewMap(
+  scopeRoot: OrgUnit,
+  selected: OrgUnit,
+  periodId: string,
+  bands: { onTrack: number; watch: number },
+): Promise<OverviewMap | null> {
+  const boundaries = loadBoundaries();
+  if (!boundaries || boundaries.length === 0) return null;
+
+  // The states in view: the root's children when it is the federal tier, the
+  // root itself when the user is state-scoped, and none above an LGA root.
+  let states: OrgUnit[];
+  let lgas: OrgUnit[];
+  if (scopeRoot.level === 'COUNTRY') {
+    states = (await listChildren(scopeRoot.id)).filter((unit) => unit.level === 'STATE');
+    lgas = (await Promise.all(states.map((state) => listChildren(state.id)))).flat();
+  } else if (scopeRoot.level === 'STATE') {
+    states = [scopeRoot];
+    lgas = await listChildren(scopeRoot.id);
+  } else if (scopeRoot.level === 'LGA') {
+    states = [];
+    lgas = [scopeRoot];
+  } else {
+    return null;
+  }
+  lgas = lgas.filter((unit) => unit.level === 'LGA');
+
+  const byId = new Map(boundaries.map((feature) => [String(feature.properties.orgUnitId ?? feature.properties.id ?? ''), feature]));
+  const byName = new Map(
+    boundaries
+      .filter((feature) => typeof feature.properties.name === 'string')
+      .map((feature) => [boundaryNameKey(feature.properties.name as string), feature]),
+  );
+  const matched = lgas
+    .map((unit) => ({ unit, feature: byId.get(unit.id) ?? byName.get(boundaryNameKey(unit.name)) }))
+    .filter((entry): entry is { unit: OrgUnit; feature: BoundaryFeature } => Boolean(entry.feature));
+  if (matched.length === 0) return null;
+
+  const projection = geoMercator().fitExtent(
+    [
+      [16, 16],
+      [OVERVIEW_WIDTH - 16, OVERVIEW_HEIGHT - 16],
+    ],
+    { type: 'FeatureCollection', features: matched.map((entry) => entry.feature) } as unknown as GeoPermissibleObjects,
+  );
+  const builder = geoPath(projection);
+
+  const [lgaCards, stateCards] = await Promise.all([
+    scopeRoot.level === 'LGA'
+      ? getScorecard(scopeRoot.id, periodId).then((card) => (card ? [card] : []))
+      : Promise.all(states.map((state) => getChildScorecards(state.id, periodId))).then((sets) => sets.flat()),
+    scopeRoot.level === 'COUNTRY'
+      ? getChildScorecards(scopeRoot.id, periodId)
+      : scopeRoot.level === 'STATE'
+        ? getScorecard(scopeRoot.id, periodId).then((card) => (card ? [card] : []))
+        : Promise.resolve([] as Scorecard[]),
+  ]);
+  const cards = new Map([...lgaCards, ...stateCards].map((card) => [card.orgUnitId, card]));
+  const stateIds = new Set(states.map((state) => state.id));
+
+  const lgaAreas: OverviewMapArea[] = matched.map(({ unit, feature }) => {
+    const shape = feature as unknown as GeoPermissibleObjects;
+    const card = cards.get(unit.id);
+    const [cx, cy] = builder.centroid(shape);
+    const bounds = builder.bounds(shape) as [[number, number], [number, number]];
+    return {
+      id: unit.id,
+      name: unit.name,
+      stateId: unit.path.find((id) => stateIds.has(id)) ?? null,
+      path: builder(shape),
+      bounds: bounds.every((point) => point.every(Number.isFinite)) ? bounds : null,
+      cx,
+      cy,
+      area: builder.area(shape),
+      score: card?.overallScore ?? null,
+      status: card?.status ?? 'NO_DATA',
+      reporting: reportingOf(card),
+      dataConfidence: card?.dataConfidence.score ?? 0,
+    };
+  });
+
+  const stateAreas: OverviewMapArea[] = states.map((state) => {
+    const members = lgaAreas.filter((lga) => lga.stateId === state.id && lga.bounds);
+    const card = cards.get(state.id);
+    const bounds: OverviewMapArea['bounds'] =
+      members.length === 0
+        ? null
+        : [
+            [Math.min(...members.map((m) => m.bounds![0][0])), Math.min(...members.map((m) => m.bounds![0][1]))],
+            [Math.max(...members.map((m) => m.bounds![1][0])), Math.max(...members.map((m) => m.bounds![1][1]))],
+          ];
+    return {
+      id: state.id,
+      name: state.name,
+      stateId: null,
+      path: null,
+      bounds,
+      cx: bounds ? (bounds[0][0] + bounds[1][0]) / 2 : 0,
+      cy: bounds ? (bounds[0][1] + bounds[1][1]) / 2 : 0,
+      area: members.reduce((sum, member) => sum + member.area, 0),
+      score: card?.overallScore ?? null,
+      status: card?.status ?? 'NO_DATA',
+      reporting: reportingOf(card),
+      dataConfidence: card?.dataConfidence.score ?? 0,
+    };
+  });
+
+  const lgaIds = new Set(lgaAreas.map((lga) => lga.id));
+  return {
+    width: OVERVIEW_WIDTH,
+    height: OVERVIEW_HEIGHT,
+    states: stateAreas,
+    lgas: lgaAreas,
+    focus: {
+      stateId: selected.path.find((id) => stateIds.has(id)) ?? null,
+      lgaId: selected.path.find((id) => lgaIds.has(id)) ?? null,
+    },
+    missing: lgas.filter((unit) => !matched.some((entry) => entry.unit.id === unit.id)).map((unit) => unit.name),
+    bands,
+    periodLabel: parsePeriod(periodId).label,
   };
 }

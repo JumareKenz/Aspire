@@ -7,7 +7,15 @@ import {
   type Period,
   type ReportingRecord,
 } from '@/core/model/types';
-import type { ConnectionResult, FetchRequest, SourceAdapter } from '../port';
+import type {
+  ConnectionResult,
+  DataElementValueRequest,
+  FetchRequest,
+  SourceAdapter,
+  SourceDataElement,
+  SourceMetadata,
+} from '../port';
+import { parseExpression } from '@/core/registry/provenance';
 import type { IndicatorDefinition } from '@/core/registry/types';
 import { Dhis2Client, Dhis2Error, type Dhis2Config } from './client';
 import { env } from '@/lib/env';
@@ -459,13 +467,15 @@ export class Dhis2Adapter implements SourceAdapter {
     // Breakdowns: a count split by one category, at the state and LGA
     // levels only. Wards and facilities would multiply the rows many times
     // over for splits nobody reads at that depth.
-    const breakdownLevels = Object.entries(levelMap)
-      .filter(([dhis2Level, canonical]) =>
-        (canonical === 'STATE' || canonical === 'LGA') && Number(dhis2Level) >= rootDhis2Level)
-      .map(([dhis2Level]) => Number(dhis2Level));
-    observations.push(
-      ...(await this.fetchBreakdowns(request.indicators, roots, breakdownLevels, periodChunks)),
-    );
+    if (request.includeBreakdowns !== false) {
+      const breakdownLevels = Object.entries(levelMap)
+        .filter(([dhis2Level, canonical]) =>
+          (canonical === 'STATE' || canonical === 'LGA') && Number(dhis2Level) >= rootDhis2Level)
+        .map(([dhis2Level]) => Number(dhis2Level));
+      observations.push(
+        ...(await this.fetchBreakdowns(request.indicators, roots, breakdownLevels, periodChunks)),
+      );
+    }
 
     // Units above the roots: each is computed from the roots beneath it, and
     // only where every one of those roots has a value — a federal figure built
@@ -502,6 +512,151 @@ export class Dhis2Adapter implements SourceAdapter {
       }
     }
     return observations;
+  }
+
+  /**
+   * The approved forms and their data elements, as DHIS2's data set metadata
+   * records them, plus the definitions of the DHIS2 indicators the registry
+   * refers to. This is what NHMIS provenance is verified against; nothing here
+   * is inferred from a name.
+   */
+  async fetchMetadata(request: {
+    indicators: IndicatorDefinition[];
+    formIds: string[];
+    sourceIndicatorIds: string[];
+    optionComboIds: string[];
+  }): Promise<SourceMetadata> {
+    const [sets, definitions] = await Promise.all([
+      this.client.formMetadata(request.formIds),
+      this.client.indicatorDefinitions(request.sourceIndicatorIds),
+    ]);
+    const elements = new Map<string, SourceDataElement>();
+    for (const set of sets) {
+      for (const entry of set.dataSetElements ?? []) {
+        const element = entry.dataElement;
+        if (!element || (element.domainType && element.domainType !== 'AGGREGATE')) continue;
+        const existing = elements.get(element.id);
+        if (existing) {
+          existing.formIds = [...new Set([...existing.formIds, set.id])];
+          continue;
+        }
+        elements.set(element.id, {
+          id: element.id,
+          name: element.displayName,
+          shortName: element.shortName ?? null,
+          code: element.code ?? null,
+          valueType: element.valueType ?? null,
+          aggregationType: element.aggregationType ?? null,
+          formIds: [set.id],
+          categories: (element.categoryCombo?.categories ?? [])
+            .filter((category) => category.dataDimension !== false && category.displayName !== 'default')
+            .map((category) => ({ id: category.id, name: category.displayName })),
+        });
+      }
+    }
+    const sourceIndicators = definitions.map((definition) => ({
+      id: definition.id,
+      name: definition.displayName,
+      numerator: definition.numerator ?? '',
+      denominator: definition.denominator ?? '',
+    }));
+    const optionComboIds = new Set(request.optionComboIds);
+    for (const definition of sourceIndicators) {
+      for (const operand of [
+        ...parseExpression(definition.numerator, 'NUMERATOR'),
+        ...parseExpression(definition.denominator, 'DENOMINATOR'),
+      ]) {
+        if (operand.optionComboId) optionComboIds.add(operand.optionComboId);
+      }
+    }
+    const combos = await this.client.optionComboNames([...optionComboIds]);
+    return {
+      forms: sets.map((set) => ({ id: set.id, name: set.displayName, periodType: set.periodType ?? null })),
+      dataElements: [...elements.values()],
+      sourceIndicators,
+      optionCombos: Object.fromEntries(combos.map((combo) => [combo.id, combo.displayName])),
+    };
+  }
+
+  /**
+   * Data element values at state and LGA level, one analytics request per
+   * level and period chunk. DHIS2 aggregates each period by the element's own
+   * aggregation type, so a month is a month and a quarter a quarter.
+   *
+   * Units above the roots (the federal tier) are summed from the roots only
+   * for elements whose aggregation type is SUM, and only where every root has
+   * a value. Averages and other non-additive types are left absent there
+   * rather than approximated.
+   */
+  async fetchDataElementValues(
+    request: DataElementValueRequest,
+  ): Promise<Array<{ dx: string; orgUnitId: string; periodId: string; value: number }>> {
+    if (request.dx.length === 0 || request.periods.length === 0) return [];
+    const levelMap = readLevelMap();
+    const roots = await this.scopeRoots();
+    const rootUnits = request.orgUnits.filter((unit) => roots.includes(unit.id));
+    const rootLevels = new Set(rootUnits.map((unit) => unit.level));
+    const rootDhis2Level = Math.min(
+      ...Object.entries(levelMap)
+        .filter(([, canonical]) => rootLevels.has(canonical))
+        .map(([dhis2Level]) => Number(dhis2Level)),
+    );
+    const levels = Object.entries(levelMap)
+      .filter(([dhis2Level, canonical]) =>
+        (canonical === 'STATE' || canonical === 'LGA') && Number(dhis2Level) >= rootDhis2Level)
+      .map(([dhis2Level]) => Number(dhis2Level));
+
+    const periodChunks: Period[][] = [];
+    for (let i = 0; i < request.periods.length; i += PERIODS_PER_REQUEST) {
+      periodChunks.push(request.periods.slice(i, i + PERIODS_PER_REQUEST));
+    }
+    const requests = levels.flatMap((level) => periodChunks.map((periods) => ({ level, periods })));
+    const responses = await mapLimit(requests, CONCURRENT_REQUESTS, ({ level, periods }) =>
+      this.client.analytics({
+        dx: request.dx,
+        pe: periods.map((period) => period.id),
+        ou: roots,
+        level,
+        includeNumDen: false,
+      }),
+    );
+
+    const values: Array<{ dx: string; orgUnitId: string; periodId: string; value: number }> = [];
+    const wanted = new Set(request.dx);
+    const known = new Set(request.orgUnits.map((unit) => unit.id));
+    for (const response of responses) {
+      const columns = new Map(response.headers.map((header, index) => [header.name, index]));
+      const [dxI, peI, ouI, vI] = ['dx', 'pe', 'ou', 'value'].map((name) => columns.get(name));
+      if (dxI === undefined || peI === undefined || ouI === undefined || vI === undefined) continue;
+      for (const row of response.rows) {
+        const value = parseCell(row[vI]);
+        if (value === null || !wanted.has(row[dxI]) || !known.has(row[ouI])) continue;
+        values.push({ dx: row[dxI], orgUnitId: row[ouI], periodId: row[peI], value });
+      }
+    }
+
+    // Above the roots: sum additive elements across every root.
+    const rootDepth = Math.min(...rootUnits.map((unit) => unit.path.length));
+    const ancestors = request.orgUnits.filter((unit) => unit.path.length < rootDepth);
+    const byKey = new Map(values.map((entry) => [`${entry.dx}|${entry.orgUnitId}|${entry.periodId}`, entry.value]));
+    for (const ancestor of ancestors) {
+      const beneath = rootUnits.filter((unit) => unit.path.includes(ancestor.id));
+      if (beneath.length === 0) continue;
+      for (const dx of request.dx) {
+        if ((request.aggregationTypes[dx.split('.')[0]] ?? null) !== 'SUM') continue;
+        for (const period of request.periods) {
+          const parts = beneath.map((unit) => byKey.get(`${dx}|${unit.id}|${period.id}`));
+          if (parts.some((part) => part === undefined)) continue;
+          values.push({
+            dx,
+            orgUnitId: ancestor.id,
+            periodId: period.id,
+            value: (parts as number[]).reduce((sum, part) => sum + part, 0),
+          });
+        }
+      }
+    }
+    return values;
   }
 
   /**

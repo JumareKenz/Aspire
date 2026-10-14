@@ -113,6 +113,9 @@ Recorded so they can be argued with rather than inherited silently:
   describing the indicators that happened to report rather than the programme.
 - **Targets are placeholders.** Set per geography and period through the targets
   table; the values in `src/config/indicators.ts` are defaults, not policy.
+  Count targets apply only to the area and period type they were set for; an
+  indicator with no applicable target is shown unscored rather than scored
+  against a guess. See `docs/NHMIS_GOVERNANCE_TARGETS_AND_PERIODS.md`.
 
 ## Performance is not data confidence
 

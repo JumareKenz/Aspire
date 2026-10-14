@@ -1,4 +1,4 @@
-import { listDomains, listIndicators } from '@/data/repositories/registry';
+import { listDomains, listReportingIndicators } from '@/data/repositories/registry';
 import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { isInScope } from '@/auth/rbac';
 import { experienceFor, permittedLevels } from '@/auth/experience';
@@ -49,7 +49,7 @@ export async function answerQuestion(
   // is never shown the name of a geography this user may not see.
   const [allUnits, indicators, domains] = await Promise.all([
     listOrgUnits(),
-    listIndicators(),
+    listReportingIndicators(),
     listDomains(),
   ]);
 

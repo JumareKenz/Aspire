@@ -177,6 +177,63 @@ export class Dhis2Client {
     return response.dataSets;
   }
 
+  /**
+   * Forms with the data elements DHIS2 records on them: the authoritative
+   * statement of which data elements belong to an NHMIS form.
+   */
+  async formMetadata(ids: string[]): Promise<
+    Array<{
+      id: string;
+      displayName: string;
+      periodType?: string;
+      dataSetElements?: Array<{
+        dataElement?: {
+          id: string;
+          displayName: string;
+          shortName?: string;
+          code?: string;
+          valueType?: string;
+          aggregationType?: string;
+          domainType?: string;
+          categoryCombo?: { categories?: Array<{ id: string; displayName: string; dataDimension?: boolean }> };
+        };
+      }>;
+    }>
+  > {
+    if (ids.length === 0) return [];
+    const response = await this.request<{ dataSets: never[] }>('dataSets', {
+      filter: `id:in:[${ids.join(',')}]`,
+      fields:
+        'id,displayName,periodType,dataSetElements[dataElement[id,displayName,shortName,code,valueType,aggregationType,domainType,categoryCombo[categories[id,displayName,dataDimension]]]]',
+      paging: 'false',
+    });
+    return response.dataSets;
+  }
+
+  /** Numerator and denominator expressions of the named indicators. */
+  async indicatorDefinitions(
+    ids: string[],
+  ): Promise<Array<{ id: string; displayName: string; numerator?: string; denominator?: string }>> {
+    if (ids.length === 0) return [];
+    const response = await this.request<{ indicators: never[] }>('indicators', {
+      filter: `id:in:[${ids.join(',')}]`,
+      fields: 'id,displayName,numerator,denominator',
+      paging: 'false',
+    });
+    return response.indicators;
+  }
+
+  /** Display names of category option combos. */
+  async optionComboNames(ids: string[]): Promise<Array<{ id: string; displayName: string }>> {
+    if (ids.length === 0) return [];
+    const response = await this.request<{ categoryOptionCombos: never[] }>('categoryOptionCombos', {
+      filter: `id:in:[${ids.join(',')}]`,
+      fields: 'id,displayName',
+      paging: 'false',
+    });
+    return response.categoryOptionCombos;
+  }
+
   async indicators(): Promise<Array<{ id: string; displayName: string; numerator?: string }>> {
     const response = await this.request<{ indicators: never[] }>('indicators', {
       fields: 'id,displayName,numerator',

@@ -177,7 +177,11 @@ export async function generateReport(
 
   const base = {
     type,
-    title: REPORT_META[type].title,
+    // The same report serves a month or a quarter; its title says which.
+    title:
+      type === 'QUARTERLY_PERFORMANCE' && /^\d{6}$/.test(periodId)
+        ? 'Monthly SRHR performance report'
+        : REPORT_META[type].title,
     orgUnitName: scorecard.orgUnitName,
     periodLabel: scorecard.periodLabel,
     generatedAt: new Date().toISOString(),
@@ -365,7 +369,11 @@ function areaPerformance(data: Assembled): ReportSection[] {
         rows: domain.indicators.map((indicator) => [
           indicator.name,
           indicator.mapped ? indicator.value : 'Not reported by the data source',
-          indicator.targetProvisional ? `${indicator.target} (provisional)` : indicator.target,
+          indicator.target === null
+            ? 'No target set'
+            : indicator.targetProvisional
+              ? `${indicator.target} (provisional)`
+              : indicator.target,
           indicator.achievementPct === null ? null : `${indicator.achievementPct}%`,
           indicator.score,
           indicator.status.toLowerCase().replace('_', ' '),

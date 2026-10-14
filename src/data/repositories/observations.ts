@@ -219,33 +219,8 @@ export async function upsertTargets(targets: Target[]): Promise<void> {
   }
 }
 
-/**
- * Effective targets for an org unit and period. Specificity wins: an org- and
- * period-specific target overrides an org-specific one, which overrides the
- * global default.
- */
-export async function getEffectiveTargets(
-  orgUnitId: string,
-  periodId: string,
-): Promise<Record<string, number>> {
-  const rows = await query<{
-    indicator_id: string;
-    org_unit_id: string;
-    period_id: string;
-    value: number;
-  }>(
-    `SELECT indicator_id, org_unit_id, period_id, value FROM targets
-     WHERE (org_unit_id = $1 OR org_unit_id = '') AND (period_id = $2 OR period_id = '')`,
-    [orgUnitId, periodId],
-  );
-
-  const scored = new Map<string, { value: number; specificity: number }>();
-  for (const row of rows) {
-    const specificity = (row.org_unit_id === '' ? 0 : 2) + (row.period_id === '' ? 0 : 1);
-    const existing = scored.get(row.indicator_id);
-    if (!existing || specificity > existing.specificity) {
-      scored.set(row.indicator_id, { value: row.value, specificity });
-    }
-  }
-  return Object.fromEntries([...scored].map(([id, entry]) => [id, entry.value]));
+/** Ids of the stored periods of one type, oldest first: the months a sync has actually imported. */
+export async function listStoredPeriodIds(type: Period['type']): Promise<string[]> {
+  const rows = await query<{ id: string }>('SELECT id FROM periods WHERE type = $1 ORDER BY start_date', [type]);
+  return rows.map((row) => row.id);
 }

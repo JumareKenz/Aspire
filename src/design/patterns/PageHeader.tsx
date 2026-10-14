@@ -32,7 +32,7 @@ export function PageHeader({
           ) : null}
           {meta ? <div className="mt-2 flex flex-wrap items-center gap-2">{meta}</div> : null}
         </div>
-        {controls ? <div className="shrink-0">{controls}</div> : null}
+        {controls ? <div className="min-w-0 max-w-full">{controls}</div> : null}
       </div>
     </header>
   );

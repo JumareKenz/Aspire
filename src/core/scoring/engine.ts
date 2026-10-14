@@ -12,6 +12,7 @@ import type {
 } from './types';
 import type { OrgLevel } from '../model/types';
 import { isMapped } from '../registry/mapping';
+import type { TargetScope } from '../targets/resolve';
 
 /**
  * Direction-aware achievement against target, expressed as a percentage.
@@ -19,10 +20,10 @@ import { isMapped } from '../registry/mapping';
  */
 export function achievement(
   value: number | null,
-  target: number,
+  target: number | null,
   directionality: IndicatorDefinition['directionality'],
 ): number | null {
-  if (value === null || !Number.isFinite(value) || !Number.isFinite(target)) return null;
+  if (value === null || target === null || !Number.isFinite(value) || !Number.isFinite(target)) return null;
   if (directionality === 'HIGHER_IS_BETTER') {
     if (target <= 0) return null;
     return round(clamp((value / target) * 100, 0, 400), 1);
@@ -41,7 +42,7 @@ export function achievement(
  */
 export function applyScoringRule(
   value: number | null,
-  target: number,
+  target: number | null,
   rule: ScoringRule,
   directionality: IndicatorDefinition['directionality'],
 ): number | null {
@@ -90,8 +91,15 @@ export interface ScorecardInput {
    * Missing entries are null and are handled by the methodology's rule.
    */
   series: Record<string, Array<number | null>>;
-  /** Effective target per indicator for the reporting period. */
-  targets: Record<string, number>;
+  /**
+   * Effective target per indicator for the reporting period. Null means no
+   * target applies (see `resolveTarget`): the value is shown, but a rule that
+   * needs a target cannot score it. An absent key falls back to the
+   * indicator's default, for callers that resolve no targets at all.
+   */
+  targets: Record<string, number | null>;
+  /** Which kind of target row supplied each target, for display. */
+  targetScopes?: Record<string, TargetScope | null>;
   dataConfidence: DataConfidence;
 }
 
@@ -162,7 +170,7 @@ function scoreAtIndex(input: ScorecardInput, index: number) {
         const effectiveWeight = totalIndicatorWeight > 0 ? rawWeight / totalIndicatorWeight : 0;
         const series = input.series[indicator.id] ?? [];
         const { value, carried } = resolveValue(series, index, methodology);
-        const target = targets[indicator.id] ?? indicator.defaultTarget;
+        const target = indicator.id in targets ? targets[indicator.id] : indicator.defaultTarget;
         const score = applyScoringRule(value, target, indicator.scoring, indicator.directionality);
         return { indicator, value, carried, target, score, effectiveWeight, rawWeight };
       });
@@ -231,6 +239,8 @@ export function buildScorecard(input: ScorecardInput): Scorecard {
         directionality: entry.indicator.directionality,
         mapped: isMapped(entry.indicator),
         targetProvisional: !entry.indicator.targetOfficial,
+        targetScope:
+          entry.target === null ? null : (input.targetScopes?.[entry.indicator.id] ?? 'DEFAULT'),
       };
     });
 

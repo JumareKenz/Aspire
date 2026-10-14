@@ -6,8 +6,10 @@ import { achievement, applyScoringRule, statusForScore } from '@/core/scoring/en
 import { forecast, type ForecastResult } from '@/core/forecast/engine';
 import { futurePeriods, periodRange } from '@/core/model/periods';
 import { round } from '@/core/analytics/stats';
-import { getActiveMethodology, getIndicator } from '@/data/repositories/registry';
-import { getBreakdown, getEffectiveTargets, getSeries, getSeriesForUnits } from '@/data/repositories/observations';
+import { getActiveMethodology, listReportingIndicators } from '@/data/repositories/registry';
+import { getBreakdown, getSeries, getSeriesForUnits } from '@/data/repositories/observations';
+import type { TargetScope } from '@/core/targets/resolve';
+import { resolveTargetsFor } from './targets';
 import { getOrgUnit, listChildren } from '@/data/repositories/orgUnits';
 import { listFindings } from '@/data/repositories/findings';
 import { HISTORY_PERIODS } from '@/data/sync/periods';
@@ -30,7 +32,11 @@ export interface IndicatorDetail {
   labels: string[];
   values: Array<number | null>;
   value: number | null;
-  target: number;
+  /** Null when no target applies to this area and period. */
+  target: number | null;
+  targetScope: TargetScope | null;
+  /** Why there is no target, when there is none. */
+  targetMissingReason: string | null;
   achievementPct: number | null;
   score: number | null;
   status: ReturnType<typeof statusForScore>;
@@ -59,17 +65,20 @@ export async function getIndicatorDetail(
   indicatorId: string,
   periodId: string,
 ): Promise<IndicatorDetail | null> {
-  const [indicator, orgUnit] = await Promise.all([getIndicator(indicatorId), getOrgUnit(orgUnitId)]);
+  // Only indicators in the reporting workflow can be opened: an unverified
+  // indicator is not reachable by id any more than it is on a scorecard.
+  const [reporting, orgUnit] = await Promise.all([listReportingIndicators(), getOrgUnit(orgUnitId)]);
+  const indicator = reporting.find((entry) => entry.id === indicatorId) ?? null;
   if (!indicator || !orgUnit) return null;
 
   const methodology = await getActiveMethodology();
   const periods = periodRange(periodId, HISTORY_PERIODS);
   const [seriesByIndicator, targets] = await Promise.all([
     getSeries(orgUnitId, periods, [indicatorId]),
-    getEffectiveTargets(orgUnitId, periodId),
+    resolveTargetsFor([indicator], [orgUnitId], periodId).then((byUnit) => byUnit.get(orgUnitId)!),
   ]);
   const series = seriesByIndicator[indicatorId] ?? [];
-  const target = targets[indicatorId] ?? indicator.defaultTarget;
+  const target = targets.values[indicatorId];
   const value = series[series.length - 1] ?? null;
   const lowerIsBetter = indicator.directionality === 'LOWER_IS_BETTER';
 
@@ -127,6 +136,8 @@ export async function getIndicatorDetail(
     values: series,
     value: value === null ? null : round(value, 1),
     target,
+    targetScope: targets.scopes[indicatorId],
+    targetMissingReason: targets.missing[indicatorId],
     achievementPct: achievement(value, target, indicator.directionality),
     score: applyScoringRule(value, target, indicator.scoring, indicator.directionality),
     status: statusForScore(

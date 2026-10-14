@@ -45,3 +45,10 @@ export const DOMAINS: DomainDefinition[] = [
     order: 6,
   },
 ];
+
+/**
+ * Domains listed ahead of the alphabetical order in the data element catalogue.
+ * Adolescent SRHR is the programme's priority population, so its data elements
+ * come first; every other domain follows alphabetically.
+ */
+export const PRIORITY_DOMAIN_IDS = ['adolescent-srhr'];

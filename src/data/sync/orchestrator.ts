@@ -13,7 +13,9 @@ import { replaceFindings } from '../repositories/findings';
 import { finishSyncRun, startSyncRun } from '../repositories/syncRuns';
 import { getDataMode, setDataMode, setLastSyncAt, setLatestDataPeriod } from '../repositories/settings';
 import { getSourceAdapter } from '../sources';
-import { analysisPeriods } from './periods';
+import { analysisMonths, analysisPeriods } from './periods';
+import { dataElementRefs, verifyProvenance } from './governance';
+import { listCatalogue, replaceCatalogue, saveProvenance, upsertDataElementValues } from '../repositories/nhmis';
 
 export interface SyncResult {
   ok: boolean;
@@ -36,15 +38,49 @@ export async function runSync(): Promise<SyncResult> {
   const adapter = getSourceAdapter();
   const runId = await startSyncRun(adapter.mode);
   const periods = analysisPeriods();
-  const indicators = await listIndicators();
+  const months = analysisMonths();
+  const registry = await listIndicators(true);
 
   try {
     const orgUnits = await adapter.fetchOrgUnits();
     const datasets = await adapter.fetchDatasets();
+
+    // Governance first: only indicators verified against the approved NHMIS
+    // forms are fetched at all, so unverified figures never enter the store.
+    const governance = await verifyProvenance(adapter, registry);
+    const indicators = governance.reportable;
+    if (indicators.length === 0) {
+      const unverified = governance.provenance.filter((entry) => entry.status === 'UNVERIFIED').length;
+      throw new Error(
+        governance.forms.length === 0
+          ? 'None of the approved NHMIS forms was found at the source, so no indicator could be verified. Nothing was imported.'
+          : `No active indicator could be verified against the approved NHMIS forms (${unverified} unverified). Nothing was imported; see Admin → Indicators.`,
+      );
+    }
     const request = { orgUnits, indicators, periods };
 
     const observations = await adapter.fetchObservations(request);
     const reporting = await adapter.fetchReporting({ ...request, datasets });
+
+    // Monthly values are requested as months from the source, which aggregates
+    // each by its own rules; nothing monthly is derived from a quarter.
+    const monthlyRequest = { orgUnits, indicators, periods: months, includeBreakdowns: false };
+    const monthlyObservations = months.length > 0 ? await adapter.fetchObservations(monthlyRequest) : [];
+    const monthlyReporting = months.length > 0 ? await adapter.fetchReporting({ ...monthlyRequest, datasets }) : [];
+
+    const elementIds = new Set(governance.metadata.dataElements.map((element) => element.id));
+    const configured = (await listCatalogue())
+      .filter((element) => element.config?.active && element.config.domainId && elementIds.has(element.id))
+      .map((element) => element.id);
+    const refs = dataElementRefs(governance.provenance, new Set(indicators.map((indicator) => indicator.id)), configured);
+    const elementValues = await adapter.fetchDataElementValues({
+      dx: refs,
+      orgUnits,
+      periods: [...periods, ...months],
+      aggregationTypes: Object.fromEntries(
+        governance.metadata.dataElements.map((element) => [element.id, element.aggregationType]),
+      ),
+    });
 
     // Switching source replaces the geography outright; see replaceGeography.
     let note = '';
@@ -55,13 +91,22 @@ export async function runSync(): Promise<SyncResult> {
       }
     }
 
-    await upsertPeriods(periods);
+    await upsertPeriods([...periods, ...months]);
     await upsertOrgUnits(orgUnits);
     await deactivateMissingOrgUnits(orgUnits.map((unit) => unit.id));
-    await upsertObservations(observations);
-    await upsertReporting(reporting);
+    await replaceCatalogue(
+      governance.forms,
+      governance.metadata.dataElements
+        .map((element) => ({ ...element, formIds: element.formIds.filter((id) => governance.forms.some((form) => form.id === id)) }))
+        .filter((element) => element.formIds.length > 0),
+      adapter.mode === 'DEMO',
+    );
+    await saveProvenance(governance.provenance);
+    await upsertObservations([...observations, ...monthlyObservations]);
+    await upsertReporting([...reporting, ...monthlyReporting]);
+    await upsertDataElementValues(elementValues);
     await upsertTargets(
-      indicators.map((indicator) => ({
+      registry.map((indicator) => ({
         indicatorId: indicator.id,
         orgUnitId: null,
         periodId: null,
@@ -75,6 +120,12 @@ export async function runSync(): Promise<SyncResult> {
     const findings = scanQuality(orgUnits, totals, reporting, periods, indicators);
     await replaceFindings(findings);
 
+    const excluded = governance.provenance.filter((entry) => entry.status === 'UNVERIFIED' || entry.status === 'UNMAPPED');
+    const governanceNote =
+      adapter.mode === 'DEMO'
+        ? 'Demo data is synthetic and not governed as NHMIS data.'
+        : `${indicators.length} indicators verified against the approved NHMIS forms; ${excluded.length} excluded from reporting.`;
+
     await setDataMode(adapter.mode);
     await setLastSyncAt(new Date().toISOString());
     const latest = latestPeriodWithData(orgUnits, totals, periods);
@@ -84,7 +135,7 @@ export async function runSync(): Promise<SyncResult> {
       orgUnits: orgUnits.length,
       observations: observations.length,
       findings: findings.length,
-      message: `Synchronised ${periods.length} periods from ${adapter.label}.${note}`,
+      message: `Synchronised ${periods.length} quarters and ${months.length} months from ${adapter.label}. ${governanceNote}${note}`,
     });
 
     return {

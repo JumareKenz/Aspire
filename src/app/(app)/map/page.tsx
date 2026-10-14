@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Map' };
 export const dynamic = 'force-dynamic';
 
 export default async function MapPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const context = await resolvePageContext(await searchParams);
+  const context = await resolvePageContext(await searchParams, { monthly: true });
   const data = await getMapData(context.orgUnit.id, context.periodId);
 
   return (
@@ -32,6 +32,8 @@ export default async function MapPage({ searchParams }: { searchParams: Promise<
           <ScopeBar
             orgUnits={context.orgUnitOptions}
             periods={context.periodOptions}
+            orgUnitPath={context.orgUnitPath}
+            deepestLevel={context.deepestLevel}
             orgUnitId={context.orgUnit.id}
             periodId={context.periodId}
           />

@@ -2,7 +2,7 @@ import { isInScope } from '@/auth/rbac';
 import { execute, query, queryOne } from '@/data/db/client';
 import type { User } from '@/data/repositories/users';
 import { getOrgUnit, getRootOrgUnit } from '@/data/repositories/orgUnits';
-import { listIndicators } from '@/data/repositories/registry';
+import { listReportingIndicators } from '@/data/repositories/registry';
 import { Dhis2Client, Dhis2Error, readDhis2Config } from '@/data/sources/dhis2/client';
 import { ApiError } from '@/lib/api';
 import { defaultPeriodId } from './scorecards';
@@ -60,7 +60,7 @@ export function monthBounds(month: string): { start: string; end: string } {
 /** The form whose rules are run (the one the registry's indicators are reported through) and the months covered. */
 export async function scorecardWindow(): Promise<ScorecardWindow | null> {
   const counts = new Map<string, number>();
-  for (const indicator of await listIndicators()) {
+  for (const indicator of await listReportingIndicators()) {
     const id = indicator.source.datasetId;
     if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
   }

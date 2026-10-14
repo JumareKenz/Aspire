@@ -1,5 +1,6 @@
 'use client';
 
+import { TARGET_SCOPE_LABEL } from '@/core/targets/resolve';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { IndicatorDetail } from '@/services/indicators';
@@ -110,9 +111,13 @@ export function IndicatorDrawer({
                 {detail.indicator.targetOfficial ? 'Target' : 'Target (provisional)'}
               </dt>
               <dd className="numeric mt-0.5 text-[18px] font-semibold text-[var(--text-secondary)]">
-                {detail.target}
-                {suffix}
+                {detail.target === null ? '—' : `${detail.target}${suffix}`}
               </dd>
+              {detail.target === null ? (
+                <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-tertiary)]">{detail.targetMissingReason}</p>
+              ) : detail.targetScope ? (
+                <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">{TARGET_SCOPE_LABEL[detail.targetScope]}</p>
+              ) : null}
             </div>
             <div>
               <dt className="text-[11px] text-[var(--text-tertiary)]">Achievement</dt>
@@ -146,7 +151,7 @@ export function IndicatorDrawer({
               labels={detail.labels}
               series={[{ id: detail.indicator.id, label: detail.indicator.shortName, values: detail.values }]}
               yLabel={detail.indicator.shortName}
-              referenceValue={detail.target}
+              referenceValue={detail.target ?? undefined}
               referenceLabel="Target"
               valueSuffix={suffix}
               height={180}

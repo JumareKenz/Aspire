@@ -4,6 +4,8 @@ import type { ScorecardMethodology } from '@/core/scoring/types';
 import { DOMAINS } from '@/config/domains';
 import { INDICATORS } from '@/config/indicators';
 import { METHODOLOGIES } from '@/config/methodology';
+import { isReportable, type ProvenanceStatus } from '@/core/registry/provenance';
+import { getDataMode } from './settings';
 
 /**
  * The indicator registry and the scoring methodology are stored as JSONB
@@ -49,6 +51,32 @@ export async function listIndicators(includeInactive = false): Promise<Indicator
   const rows = await query<{ definition: IndicatorDefinition }>('SELECT definition FROM indicator_config');
   const indicators = rows.map((row) => row.definition);
   return includeInactive ? indicators : indicators.filter((indicator) => indicator.active);
+}
+
+/**
+ * The indicators that make up the reporting workflow: active, and — against
+ * DHIS2 — verified as drawing only on approved NHMIS forms (or an explicitly
+ * approved exception). Every scorecard, report, map, breakdown, target and
+ * answer is built from this list, so an unverified indicator cannot reach a
+ * screen by any route; filtering in the interface would not be enough.
+ *
+ * Before the first governed synchronisation no indicator has been verified, so
+ * nothing is reported. That is deliberate: the alternative is reporting
+ * figures nobody has checked the provenance of.
+ *
+ * The demo dataset is synthetic and labelled as such everywhere; its
+ * indicators carry status DEMO and are all reported.
+ */
+export async function listReportingIndicators(): Promise<IndicatorDefinition[]> {
+  const mode = await getDataMode();
+  const rows = await query<{ definition: IndicatorDefinition; status: ProvenanceStatus | null }>(
+    `SELECT ic.definition, p.status FROM indicator_config ic
+     LEFT JOIN indicator_provenance p ON p.indicator_id = ic.id`,
+  );
+  return rows
+    .filter((row) => row.definition.active)
+    .filter((row) => (mode === 'DEMO' ? row.status === null || row.status === 'DEMO' : isReportable(row.status) && row.status !== 'DEMO'))
+    .map((row) => row.definition);
 }
 
 export async function getIndicator(id: string): Promise<IndicatorDefinition | null> {

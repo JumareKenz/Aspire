@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS reporting (
 );
 CREATE INDEX IF NOT EXISTS idx_reporting_period ON reporting(period_id);
 
+-- `period_id` is a period ("2025Q4", "202512"), a period type ("MONTHLY",
+-- "QUARTERLY") meaning every period of that type, or empty for every period.
+-- See `src/core/targets/resolve.ts` for how the most specific row is chosen.
 CREATE TABLE IF NOT EXISTS targets (
   indicator_id  TEXT NOT NULL,
   org_unit_id   TEXT NOT NULL DEFAULT '',
@@ -200,3 +203,63 @@ CREATE TABLE IF NOT EXISTS validation_violations (
   PRIMARY KEY (org_unit_id, dataset_id, period_id, rule_id)
 );
 CREATE INDEX IF NOT EXISTS idx_validation_violations_rule ON validation_violations(rule_id);
+
+-- NHMIS governance.
+--
+-- The forms the platform treats as approved NHMIS sources, and the data
+-- elements DHIS2 records on them, refreshed at every synchronisation. A data
+-- element that leaves an approved form is marked inactive rather than deleted,
+-- so its history and any configuration stay attached.
+CREATE TABLE IF NOT EXISTS nhmis_forms (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  period_type  TEXT,
+  synthetic    BOOLEAN NOT NULL DEFAULT FALSE,
+  active       BOOLEAN NOT NULL DEFAULT TRUE,
+  synced_at    TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nhmis_data_elements (
+  id                TEXT PRIMARY KEY,           -- DHIS2 UID
+  name              TEXT NOT NULL,
+  short_name        TEXT,
+  code              TEXT,
+  value_type        TEXT,
+  aggregation_type  TEXT,
+  form_ids          TEXT NOT NULL DEFAULT '',   -- comma-separated approved forms carrying it
+  categories        JSONB NOT NULL DEFAULT '[]',
+  synthetic         BOOLEAN NOT NULL DEFAULT FALSE,
+  active            BOOLEAN NOT NULL DEFAULT TRUE,
+  synced_at         TIMESTAMPTZ NOT NULL
+);
+
+-- Platform configuration for a data element, kept apart from its source
+-- metadata so a sync never overwrites a decision an administrator made.
+CREATE TABLE IF NOT EXISTS data_element_config (
+  id          TEXT PRIMARY KEY,
+  domain_id   TEXT,
+  active      BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at  TIMESTAMPTZ NOT NULL,
+  updated_by  TEXT
+);
+
+-- The outcome of checking each registry indicator against the approved forms.
+-- Only VERIFIED and APPROVED_EXCEPTION indicators enter reporting.
+CREATE TABLE IF NOT EXISTS indicator_provenance (
+  indicator_id  TEXT PRIMARY KEY,
+  status        TEXT NOT NULL,
+  detail        JSONB NOT NULL,
+  checked_at    TIMESTAMPTZ NOT NULL
+);
+
+-- Values of the NHMIS data elements behind the reported indicators, at state
+-- and LGA level (and the federal tier where the element is additive). `dx` is
+-- a data element UID, or "uid.coc" for one option of it.
+CREATE TABLE IF NOT EXISTS data_element_values (
+  dx           TEXT NOT NULL,
+  org_unit_id  TEXT NOT NULL,
+  period_id    TEXT NOT NULL,
+  value        DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (dx, org_unit_id, period_id)
+);
+CREATE INDEX IF NOT EXISTS idx_de_values_org_period ON data_element_values(org_unit_id, period_id);

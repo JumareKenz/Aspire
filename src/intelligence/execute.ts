@@ -260,10 +260,10 @@ async function indicatorTrend(query: AnalyticalQuery): Promise<AnalyticalResult>
     {
       statement: `${detail.indicator.name} in ${detail.orgUnitName} is ${
         detail.value === null ? 'not reported' : `${detail.value}${suffix}`
-      } for ${detail.periodLabel}, against a target of ${detail.target}${suffix}.`,
+      } for ${detail.periodLabel}, ${detail.target === null ? 'with no target set for this area and period' : `against a target of ${detail.target}${suffix}`}.`,
       evidence: [
         { label: 'Current value', value: detail.value === null ? '—' : `${detail.value}${suffix}` },
-        { label: 'Target', value: `${detail.target}${suffix}` },
+        { label: 'Target', value: detail.target === null ? 'Not set' : `${detail.target}${suffix}` },
         { label: 'Achievement', value: detail.achievementPct === null ? '—' : `${detail.achievementPct}%` },
       ],
     },
@@ -286,7 +286,7 @@ async function indicatorTrend(query: AnalyticalQuery): Promise<AnalyticalResult>
     query,
     headline: `${detail.indicator.name} in ${detail.orgUnitName}: ${
       detail.value === null ? 'no value reported' : `${detail.value}${suffix}`
-    } against a target of ${detail.target}${suffix}.`,
+    }${detail.target === null ? ', with no target set' : ` against a target of ${detail.target}${suffix}`}.`,
     findings,
     columns: [
       { key: 'area', label: 'Area' },

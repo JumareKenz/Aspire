@@ -2,14 +2,10 @@ import type { OrgUnit, Period } from '@/core/model/types';
 import type { Scorecard } from '@/core/scoring/types';
 import { buildScorecard } from '@/core/scoring/engine';
 import { computeDataConfidence } from '@/core/quality/confidence';
-import { listDomains, getActiveMethodology, listIndicators } from '@/data/repositories/registry';
+import { listDomains, getActiveMethodology, listReportingIndicators } from '@/data/repositories/registry';
 import { getOrgUnit, listChildren, listDescendants } from '@/data/repositories/orgUnits';
-import {
-  getEffectiveTargets,
-  getReporting,
-  getSeries,
-  getSeriesForUnits,
-} from '@/data/repositories/observations';
+import { getReporting, getSeries, getSeriesForUnits } from '@/data/repositories/observations';
+import { resolveTargetsFor } from './targets';
 import { listFindings } from '@/data/repositories/findings';
 import { periodRange } from '@/core/model/periods';
 import { HISTORY_PERIODS, analysisPeriods, latestCompletePeriodId } from '@/data/sync/periods';
@@ -43,7 +39,7 @@ export async function getScorecard(
 
   const [methodology, indicators, domains] = await Promise.all([
     getActiveMethodology(),
-    listIndicators(),
+    listReportingIndicators(),
     listDomains(),
   ]);
   const periods = periodRange(periodId, options.history ?? HISTORY_PERIODS);
@@ -54,7 +50,7 @@ export async function getScorecard(
       periods,
       indicators.map((indicator) => indicator.id),
     ),
-    getEffectiveTargets(orgUnitId, periodId),
+    resolveTargetsFor(indicators, [orgUnitId], periodId).then((byUnit) => byUnit.get(orgUnitId)!),
     getDataConfidenceFor(orgUnit, periodId, indicators.length),
   ]);
 
@@ -65,7 +61,8 @@ export async function getScorecard(
     domains,
     indicators,
     series,
-    targets,
+    targets: targets.values,
+    targetScopes: targets.scopes,
     dataConfidence: confidence,
   });
 }
@@ -107,7 +104,7 @@ export async function getChildScorecards(
 
   const [methodology, indicators, domains] = await Promise.all([
     getActiveMethodology(),
-    listIndicators(),
+    listReportingIndicators(),
     listDomains(),
   ]);
   const periods = periodRange(periodId, options.history ?? HISTORY_PERIODS);
@@ -121,10 +118,15 @@ export async function getChildScorecards(
   // Targets and confidence are resolved for every child in parallel: a state
   // view is a dozen LGAs, and doing this serially would make the page wait on a
   // dozen sequential round trips.
+  const targetsByChild = await resolveTargetsFor(
+    indicators,
+    children.map((child) => child.id),
+    periodId,
+  );
   const perChild = await Promise.all(
     children.map(async (child) => ({
       child,
-      targets: await getEffectiveTargets(child.id, periodId),
+      targets: targetsByChild.get(child.id)!,
       dataConfidence: await getDataConfidenceFor(child, periodId, indicators.length),
     })),
   );
@@ -137,7 +139,8 @@ export async function getChildScorecards(
       domains,
       indicators,
       series: seriesByUnit.get(child.id) ?? {},
-      targets,
+      targets: targets.values,
+      targetScopes: targets.scopes,
       dataConfidence,
     }),
   );

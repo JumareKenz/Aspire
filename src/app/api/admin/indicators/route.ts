@@ -3,6 +3,7 @@ import { getIndicator, listIndicators, saveIndicator } from '@/data/repositories
 import { upsertTargets } from '@/data/repositories/observations';
 import { recordAudit } from '@/data/repositories/audit';
 import { ApiError, ok, withUser } from '@/lib/api';
+import { validateTargetValue } from '@/core/targets/resolve';
 
 const schema = z.object({
   id: z.string().min(1),
@@ -31,6 +32,11 @@ export const PATCH = withUser(async (user, request) => {
     changes.push(`active=${body.active}`);
   }
   if (body.defaultTarget !== undefined && body.defaultTarget !== indicator.defaultTarget) {
+    const problem = validateTargetValue(indicator, body.defaultTarget);
+    if (problem) throw new ApiError(problem, 422);
+    if (user.scope.length > 0) {
+      throw new ApiError('Programme-wide targets can only be set by an administrator with programme-wide access.', 403);
+    }
     changes.push(`target ${indicator.defaultTarget}→${body.defaultTarget}`);
     indicator.defaultTarget = body.defaultTarget;
     // The global default target is also a row in `targets`, which is what the

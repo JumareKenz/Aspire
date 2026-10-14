@@ -8,7 +8,6 @@ const { upsertOrgUnits, listOrgUnits, listChildren, listDescendants, getRootOrgU
 const {
   upsertObservations,
   upsertTargets,
-  getEffectiveTargets,
   getSeries,
   getSeriesForUnits,
   getObservations,
@@ -19,7 +18,9 @@ const { replaceFindings, listFindings, setFindingStatus } = await import(
 const { createUser, authenticate, hashPassword, verifyPassword, updateUser } = await import(
   '@/data/repositories/users'
 );
-const { periodRange } = await import('@/core/model/periods');
+const { periodRange, parsePeriod } = await import('@/core/model/periods');
+const { getTargetRows, setTarget, deleteTarget, listTargets } = await import('@/data/repositories/targets');
+const { resolveTarget } = await import('@/core/targets/resolve');
 import type { OrgUnit } from '@/core/model/types';
 
 const state: OrgUnit = {
@@ -140,23 +141,51 @@ describe('observation repository', () => {
 });
 
 describe('targets', () => {
+  const rate = { id: 'i1', unit: 'PERCENT' as const, frequency: 'QUARTERLY' as const };
+  const rate2 = { id: 'i2', unit: 'PERCENT' as const, frequency: 'QUARTERLY' as const };
+  const count = { id: 'c1', unit: 'COUNT' as const, frequency: 'QUARTERLY' as const };
+  const effective = async (indicator: typeof rate | typeof count, orgUnitId: string, periodId: string) => {
+    const period = parsePeriod(periodId);
+    return resolveTarget(indicator, await getTargetRows([orgUnitId], period), orgUnitId, period);
+  };
+
   beforeAll(async () => {
     await upsertTargets([
       { indicatorId: 'i1', orgUnitId: null, periodId: null, value: 50 },
       { indicatorId: 'i1', orgUnitId: 'lga-1', periodId: null, value: 60 },
       { indicatorId: 'i1', orgUnitId: 'lga-1', periodId: '2026Q2', value: 70 },
       { indicatorId: 'i2', orgUnitId: null, periodId: null, value: 20 },
+      { indicatorId: 'c1', orgUnitId: null, periodId: null, value: 1200 },
+      { indicatorId: 'c1', orgUnitId: 'lga-1', periodId: 'QUARTERLY', value: 300 },
     ]);
   });
 
   it('prefers the most specific target available', async () => {
-    expect((await getEffectiveTargets('lga-1', '2026Q2'))['i1']).toBe(70);
-    expect((await getEffectiveTargets('lga-1', '2026Q1'))['i1']).toBe(60);
-    expect((await getEffectiveTargets('fac-1', '2026Q2'))['i1']).toBe(50);
+    expect((await effective(rate, 'lga-1', '2026Q2')).value).toBe(70);
+    expect((await effective(rate, 'lga-1', '2026Q1')).value).toBe(60);
+    expect((await effective(rate, 'fac-1', '2026Q2')).value).toBe(50);
   });
 
   it('falls back to the global default for indicators with no specific target', async () => {
-    expect((await getEffectiveTargets('lga-1', '2026Q2'))['i2']).toBe(20);
+    expect((await effective(rate2, 'lga-1', '2026Q2')).value).toBe(20);
+  });
+
+  it('applies a rate default to months, but never a count target set for another area or period type', async () => {
+    expect((await effective(rate, 'fac-1', '202605')).value).toBe(50);
+    expect((await effective(count, 'lga-1', '2026Q2')).value).toBe(300);
+    expect((await effective(count, 'lga-1', '202605')).value).toBeNull();
+    expect((await effective(count, 'state-1', '2026Q2')).value).toBeNull();
+  });
+
+  it('persists a set target, replaces it without duplicating, and deletes only the named row', async () => {
+    expect(await setTarget({ indicatorId: 'i1', orgUnitId: 'lga-1', periodId: '2026Q1', value: 65 })).toBeNull();
+    expect(await setTarget({ indicatorId: 'i1', orgUnitId: 'lga-1', periodId: '2026Q1', value: 66 })).toBe(65);
+    const rows = (await listTargets('i1')).filter((row) => row.orgUnitId === 'lga-1' && row.periodId === '2026Q1');
+    expect(rows).toEqual([{ indicatorId: 'i1', orgUnitId: 'lga-1', periodId: '2026Q1', value: 66 }]);
+    // A target for one period leaves every other period's target as it was.
+    expect((await effective(rate, 'lga-1', '2026Q2')).value).toBe(70);
+    expect(await deleteTarget({ indicatorId: 'i1', orgUnitId: 'lga-1', periodId: '2026Q1' })).toBe(true);
+    expect((await effective(rate, 'lga-1', '2026Q1')).value).toBe(60);
   });
 });
 

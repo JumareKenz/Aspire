@@ -156,6 +156,7 @@ export function generateDemoData(
   datasets: Dataset[],
 ): DemoDataset {
   const geography = buildDemoGeography();
+  const monthly = periods[0]?.type === 'MONTHLY';
   const observations: Observation[] = [];
   const reporting: ReportingRecord[] = [];
 
@@ -183,7 +184,9 @@ export function generateDemoData(
     const planted = plantedByFacility.get(facility.id) ?? [];
 
     for (const indicator of indicators) {
-      const rng = mulberry32(hashSeed(`${facility.id}:${indicator.id}`));
+      // Values follow the period's position in the window, so a monthly series
+      // gets its own seed; otherwise the last month would repeat the last quarter.
+      const rng = mulberry32(hashSeed(`${facility.id}:${indicator.id}${monthly ? ':monthly' : ''}`));
       // Seasonality is real in service data, but it is not in phase everywhere.
       // Giving each facility/indicator pair its own phase and amplitude stops
       // every series in the product from sharing one silhouette.
@@ -293,18 +296,29 @@ export function generateDemoData(
   // Aggregate facility values to LGA, then LGA to state. Percentages
   // are recomputed from summed numerators and denominators rather than averaged,
   // which is what makes the hierarchy internally consistent.
+  // Rows indexed by indicator, period and unit, so aggregation is a lookup per
+  // child rather than a scan of every observation. Children are visited in the
+  // order their rows were generated, so sums are taken in the same order.
+  const index = new Map<string, Observation[]>();
+  const key = (indicatorId: string, periodId: string, orgUnitId: string) => `${indicatorId}|${periodId}|${orgUnitId}`;
+  for (const observation of observations) {
+    const k = key(observation.indicatorId, observation.periodId, observation.orgUnitId);
+    index.set(k, [...(index.get(k) ?? []), observation]);
+  }
+  const push = (observation: Observation) => {
+    observations.push(observation);
+    const k = key(observation.indicatorId, observation.periodId, observation.orgUnitId);
+    index.set(k, [...(index.get(k) ?? []), observation]);
+  };
+
   const aggregate = (parent: OrgUnit, children: OrgUnit[]) => {
-    const childIds = new Set(children.map((c) => c.id));
     for (const indicator of indicators) {
       for (const period of periods) {
-        const rows = observations.filter(
-          (o) =>
-            o.indicatorId === indicator.id && o.periodId === period.id && childIds.has(o.orgUnitId),
-        );
+        const rows = children.flatMap((child) => index.get(key(indicator.id, period.id, child.id)) ?? []);
         if (rows.length === 0) continue;
         if (indicator.unit === 'COUNT') {
           const total = rows.reduce((acc, row) => acc + row.value, 0);
-          observations.push({
+          push({
             indicatorId: indicator.id,
             orgUnitId: parent.id,
             periodId: period.id,
@@ -318,7 +332,7 @@ export function generateDemoData(
         const numerator = rows.reduce((acc, row) => acc + (row.numerator ?? 0), 0);
         const denominator = rows.reduce((acc, row) => acc + (row.denominator ?? 0), 0);
         if (denominator <= 0) continue;
-        observations.push({
+        push({
           indicatorId: indicator.id,
           orgUnitId: parent.id,
           periodId: period.id,
