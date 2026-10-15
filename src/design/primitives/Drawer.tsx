@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react';
 import { cn } from './cn';
 
 /**
@@ -30,30 +30,31 @@ export function Drawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-      }
-    },
-    [onClose],
-  );
+  // An effect event, not a dependency: callers pass a fresh onClose on every
+  // render, and re-running the effect for it would move focus out of the
+  // panel on each keystroke typed into a field inside it.
+  const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      onClose();
+    }
+  });
 
   useEffect(() => {
     if (!open) return undefined;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    document.addEventListener('keydown', handleKeyDown);
+    const onKeyDown = (event: KeyboardEvent) => handleKeyDown(event);
+    document.addEventListener('keydown', onKeyDown);
     const timer = window.setTimeout(() => panelRef.current?.focus(), 0);
     const { overflow } = document.body.style;
     document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', onKeyDown);
       window.clearTimeout(timer);
       document.body.style.overflow = overflow;
       previouslyFocused.current?.focus?.();
     };
-  }, [open, handleKeyDown]);
+  }, [open]);
 
   if (!open) return null;
 
