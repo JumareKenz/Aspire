@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { recordAudit } from '@/data/repositories/audit';
 import { getUserById, setPassword } from '@/data/repositories/users';
-import { getOrgUnit } from '@/data/repositories/orgUnits';
-import { canResetPassword } from '@/auth/rbac';
+import { assertCanManageScope } from '@/auth/server';
 import { ApiError, ok, withUser } from '@/lib/api';
 
 const schema = z.object({
@@ -18,11 +17,7 @@ export const POST = withUser(async (user, request) => {
 
   const target = await getUserById(body.id);
   if (!target) throw new ApiError('That account no longer exists.', 404);
-  const units = await Promise.all(target.scope.map((id) => getOrgUnit(id)));
-  const paths = units.flatMap((unit) => (unit ? [unit.path] : []));
-  if (!canResetPassword(user.scope, target.scope, paths)) {
-    throw new ApiError('That account reaches beyond your own geographic access.', 403);
-  }
+  await assertCanManageScope(user, target.scope);
 
   await setPassword(target.id, body.password);
   await recordAudit({

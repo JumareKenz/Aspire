@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ROLES, createUser, getUserByEmail, listUsers, updateUser } from '@/data/repositories/users';
+import { ROLES, createUser, getUserByEmail, getUserById, updateUser } from '@/data/repositories/users';
+import { assertCanManageScope, listManageableUsers } from '@/auth/server';
 import { recordAudit } from '@/data/repositories/audit';
 import { ApiError, ok, withUser } from '@/lib/api';
 
@@ -19,10 +20,11 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
 });
 
-export const GET = withUser(async () => ok(await listUsers()), 'admin.view');
+export const GET = withUser(async (user) => ok(await listManageableUsers(user)), 'admin.view');
 
 export const POST = withUser(async (user, request) => {
   const body = createSchema.parse(await request.json());
+  await assertCanManageScope(user, body.scope);
   if (await getUserByEmail(body.email)) throw new ApiError('An account with that email already exists.', 409);
 
   const created = await createUser(body);
@@ -43,6 +45,11 @@ export const PATCH = withUser(async (user, request) => {
   if (body.id === user.id && (body.active === false || (body.role && body.role !== 'ADMIN'))) {
     throw new ApiError('You cannot remove your own administrator access.', 400);
   }
+
+  const target = await getUserById(body.id);
+  if (!target) throw new ApiError('That account no longer exists.', 404);
+  await assertCanManageScope(user, target.scope);
+  if (body.scope) await assertCanManageScope(user, body.scope);
 
   const updated = await updateUser(body.id, {
     name: body.name,

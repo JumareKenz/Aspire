@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, canResetPassword, canTakeAction, isInScope, permissionsFor, PERMISSIONS } from '@/auth/rbac';
+import { can, canManageAccount, canTakeAction, isInScope, permissionsFor, PERMISSIONS } from '@/auth/rbac';
 
 describe('role permissions', () => {
   it('gives executives read access and report generation, but no triage or admin', () => {
@@ -81,29 +81,37 @@ describe('who can take an action', () => {
   });
 });
 
-describe('who can reset a password', () => {
+describe('who can manage an account', () => {
   const bauchi = ['root', 'state-bauchi'];
   const sokoto = ['root', 'state-sokoto'];
 
   it('lets a programme-wide administrator reset anyone', () => {
-    expect(canResetPassword([], [], [])).toBe(true);
-    expect(canResetPassword([], ['state-sokoto'], [sokoto])).toBe(true);
+    expect(canManageAccount([], [], [])).toBe(true);
+    expect(canManageAccount([], ['state-sokoto'], [sokoto])).toBe(true);
   });
 
   it('lets a state administrator reset accounts inside their state', () => {
-    expect(canResetPassword(['state-bauchi'], ['lga-1'], [[...bauchi, 'lga-1']])).toBe(true);
+    expect(canManageAccount(['state-bauchi'], ['lga-1'], [[...bauchi, 'lga-1']])).toBe(true);
   });
 
   it('refuses a state administrator a programme-wide account, which would widen their access', () => {
-    expect(canResetPassword(['state-bauchi'], [], [])).toBe(false);
+    expect(canManageAccount(['state-bauchi'], [], [])).toBe(false);
   });
 
   it('refuses an account in another state, or reaching beyond their own', () => {
-    expect(canResetPassword(['state-bauchi'], ['state-sokoto'], [sokoto])).toBe(false);
-    expect(canResetPassword(['state-bauchi'], ['state-bauchi', 'state-sokoto'], [bauchi, sokoto])).toBe(false);
+    expect(canManageAccount(['state-bauchi'], ['state-sokoto'], [sokoto])).toBe(false);
+    expect(canManageAccount(['state-bauchi'], ['state-bauchi', 'state-sokoto'], [bauchi, sokoto])).toBe(false);
+  });
+
+  it('refuses a scoped administrator granting programme-wide access, by an empty scope', () => {
+    expect(canManageAccount(['lga-1'], [], [])).toBe(false);
+  });
+
+  it('refuses an LGA administrator the state above them', () => {
+    expect(canManageAccount(['lga-1'], ['state-bauchi'], [bauchi])).toBe(false);
   });
 
   it('refuses when an assigned area can no longer be resolved', () => {
-    expect(canResetPassword(['state-bauchi'], ['gone'], [])).toBe(false);
+    expect(canManageAccount(['state-bauchi'], ['gone'], [])).toBe(false);
   });
 });

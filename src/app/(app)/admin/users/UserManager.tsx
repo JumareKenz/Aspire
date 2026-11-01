@@ -30,11 +30,14 @@ export function UserManager({
   users,
   scopeChoices,
   currentUserId,
+  programmeWide,
   canManage,
 }: {
   users: User[];
   scopeChoices: ScopeChoice[];
   currentUserId: string;
+  /** Whether this administrator may grant programme-wide access. */
+  programmeWide: boolean;
   canManage: boolean;
 }) {
   const router = useRouter();
@@ -119,6 +122,10 @@ export function UserManager({
     const roots = scopeChoices.filter((choice) => choice.parentId === null);
     const states = scopeChoices.filter((choice) => choice.level === 'STATE');
     const childrenOf = (id: string) => scopeChoices.filter((choice) => choice.parentId === id);
+    // An LGA-scoped administrator is offered LGAs whose state is out of reach.
+    const loose = scopeChoices.filter(
+      (choice) => choice.level === 'LGA' && !states.some((state) => state.id === choice.parentId),
+    );
 
     const checkbox = (choice: ScopeChoice, emphasis: boolean) => {
       // Selecting a state already covers its LGAs; showing the LGA as checked
@@ -150,10 +157,13 @@ export function UserManager({
     return (
       <fieldset className="flex flex-col gap-1.5">
         <legend className="text-[11px] font-medium text-[var(--text-tertiary)]">
-          Geographic scope — leave all unselected for programme-wide access
+          {programmeWide
+            ? 'Geographic scope — leave all unselected for programme-wide access'
+            : 'Geographic scope — choose at least one area within your access'}
         </legend>
         <div className="max-h-[22rem] overflow-y-auto rounded-[var(--radius-md)] border p-2">
           {roots.map((root) => checkbox(root, true))}
+          {loose.map((lga) => checkbox(lga, false))}
           {states.map((state) => (
             <div key={state.id} className="mt-1.5 border-t pt-1.5 first:mt-0 first:border-t-0 first:pt-0">
               {checkbox(state, true)}

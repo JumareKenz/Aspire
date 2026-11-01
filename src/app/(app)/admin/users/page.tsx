@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/auth/server';
-import { can } from '@/auth/rbac';
-import { listUsers } from '@/data/repositories/users';
+import { listManageableUsers, requirePermission } from '@/auth/server';
+import { can, isInScope } from '@/auth/rbac';
 import { listOrgUnits } from '@/data/repositories/orgUnits';
 import { PageHeader } from '@/design/patterns/PageHeader';
 import { Card } from '@/design/primitives/Card';
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
   const user = await requirePermission('admin.view');
-  const [users, orgUnits] = await Promise.all([listUsers(), listOrgUnits()]);
+  const [users, orgUnits] = await Promise.all([listManageableUsers(user), listOrgUnits()]);
   // Wards and facilities are excluded — a scope of one ward or facility is not
   // a role anyone holds, and thousands more checkboxes would bury the levels
   // that matter. The
@@ -21,7 +20,7 @@ export default async function UsersPage() {
   // a flat list of 43 LGAs from two states gives an administrator no way to
   // tell which state an LGA belongs to.
   const scopeChoices = orgUnits
-    .filter((unit) => unit.level !== 'WARD' && unit.level !== 'FACILITY')
+    .filter((unit) => unit.level !== 'WARD' && unit.level !== 'FACILITY' && isInScope(user.scope, unit.path))
     .map((unit) => ({
       id: unit.id,
       name: unit.name,
@@ -42,6 +41,7 @@ export default async function UsersPage() {
             users={users}
             scopeChoices={scopeChoices}
             currentUserId={user.id}
+            programmeWide={user.scope.length === 0}
             canManage={can(user.role, 'admin.manage')}
           />
         </div>

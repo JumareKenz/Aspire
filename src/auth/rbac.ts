@@ -137,13 +137,16 @@ export function canTakeAction(
 }
 
 /**
- * Whether an administrator may reset an account's password.
+ * Whether an administrator may manage an account, or grant it a scope.
  *
- * A reset hands over the account, so it must not reach beyond the
- * administrator's own geography: a state administrator resetting a
- * programme-wide account would gain that account's access.
+ * Creating, editing, disabling or resetting an account must not reach beyond
+ * the administrator's own geography. Otherwise a state administrator could
+ * widen their own scope, or reset a programme-wide account and sign in as it.
+ * An empty scope means programme-wide, so only a programme-wide administrator
+ * may touch or grant one. Role is not limited: an administrator can appoint
+ * another within the geography they already hold.
  */
-export function canResetPassword(
+export function canManageAccount(
   adminScope: string[],
   targetScope: string[],
   targetScopePaths: string[][],

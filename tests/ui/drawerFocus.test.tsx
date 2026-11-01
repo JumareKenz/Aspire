@@ -15,7 +15,7 @@ describe('Drawer focus', () => {
   // recreate every render, so each keystroke re-ran it and its cleanup sent
   // focus back to the "Add user" button after one character.
   it('keeps focus in a field while typing into the Add user form', async () => {
-    render(<UserManager users={[]} scopeChoices={[]} currentUserId="me" canManage />);
+    render(<UserManager users={[]} scopeChoices={[]} programmeWide currentUserId="me" canManage />);
     const trigger = screen.getByRole('button', { name: 'Add user' });
     trigger.focus();
     fireEvent.click(trigger);
@@ -37,7 +37,7 @@ describe('Drawer focus', () => {
   });
 
   it('still closes on Escape and returns focus to the trigger', async () => {
-    render(<UserManager users={[]} scopeChoices={[]} currentUserId="me" canManage />);
+    render(<UserManager users={[]} scopeChoices={[]} programmeWide currentUserId="me" canManage />);
     const trigger = screen.getByRole('button', { name: 'Add user' });
     trigger.focus();
     fireEvent.click(trigger);

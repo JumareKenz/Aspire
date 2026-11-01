@@ -1,9 +1,9 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SESSION_COOKIE, readSessionToken, sessionIsCurrent, type SessionClaims } from './session';
-import { can, isInScope, type Permission } from './rbac';
+import { can, canManageAccount, isInScope, type Permission } from './rbac';
 import { canReach, experienceFor, permittedLevels, type Experience } from './experience';
-import { getUserById, type User } from '@/data/repositories/users';
+import { getUserById, listUsers, type User } from '@/data/repositories/users';
 import { ensureBootstrapped } from '@/data/bootstrap';
 import { getOrgUnit, getRootOrgUnit, listOrgUnits } from '@/data/repositories/orgUnits';
 import type { OrgUnit } from '@/core/model/types';
@@ -89,6 +89,26 @@ export async function resolveScope(user: User): Promise<Scope> {
         permitted[0]);
 
   return { units: permitted, ids: permitted.map((unit) => unit.id), root };
+}
+
+/** Whether an administrator may manage an account holding, or be granted, this scope. */
+export async function canManageScope(admin: User, targetScope: string[]): Promise<boolean> {
+  if (admin.scope.length === 0) return true;
+  const units = await Promise.all(targetScope.map((id) => getOrgUnit(id)));
+  return canManageAccount(admin.scope, targetScope, units.flatMap((unit) => (unit ? [unit.path] : [])));
+}
+
+export async function assertCanManageScope(admin: User, targetScope: string[]): Promise<void> {
+  if (!(await canManageScope(admin, targetScope))) {
+    throw new ScopeError('That reaches beyond your own geographic access.', 403);
+  }
+}
+
+/** The accounts an administrator may see and manage. */
+export async function listManageableUsers(admin: User): Promise<User[]> {
+  const users = await listUsers();
+  const allowed = await Promise.all(users.map((user) => canManageScope(admin, user.scope)));
+  return users.filter((_, index) => allowed[index]);
 }
 
 /**
