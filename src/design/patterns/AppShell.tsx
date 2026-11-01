@@ -100,6 +100,12 @@ export function AppShell({
             </div>
           </div>
           <ThemeToggle className="shrink-0" />
+          <Link
+            href="/account"
+            className="rounded-[var(--radius-md)] px-2 py-1 text-[12px] whitespace-nowrap text-[var(--text-tertiary)] transition-colors hover:bg-[var(--ink-100)] hover:text-[var(--text-primary)]"
+          >
+            Account
+          </Link>
           <form action="/api/auth/sign-out" method="post" className="shrink-0">
             <button
               type="submit"

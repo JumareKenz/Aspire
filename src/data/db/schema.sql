@@ -125,6 +125,9 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at  TIMESTAMPTZ
 );
 
+-- Sessions issued before this moment are no longer accepted. See `sessionIsCurrent`.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS actions (
   id            TEXT PRIMARY KEY,
   title         TEXT NOT NULL,

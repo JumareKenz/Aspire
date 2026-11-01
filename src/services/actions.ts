@@ -1,6 +1,8 @@
 import { listActions, type ActionItem } from '@/data/repositories/actions';
 import { getOrgUnit } from '@/data/repositories/orgUnits';
 import { listUsers } from '@/data/repositories/users';
+import { canTakeAction } from '@/auth/rbac';
+import type { Scope } from '@/auth/server';
 import { getScorecard } from './scorecards';
 import { round } from '@/core/analytics/stats';
 import { defaultPeriodId } from '@/services/scorecards';
@@ -42,4 +44,20 @@ export async function getActionViews(scopeIds: string[]): Promise<ActionView[]> 
       scoreSinceRaised,
     };
   }));
+}
+
+/** Who each action may be assigned to, by action id. */
+export async function getActionAssignees(
+  actions: ActionItem[],
+  viewer: Scope,
+): Promise<Record<string, Array<{ id: string; name: string }>>> {
+  const users = await listUsers();
+  const entries = await Promise.all(actions.map(async (action) => {
+    const unit = action.orgUnitId ? await getOrgUnit(action.orgUnitId) : null;
+    const eligible = users
+      .filter((user) => canTakeAction(user, unit?.path ?? null, viewer.ids, viewer.root.path))
+      .map((user) => ({ id: user.id, name: user.name }));
+    return [action.id, eligible] as const;
+  }));
+  return Object.fromEntries(entries);
 }

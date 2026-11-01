@@ -50,6 +50,33 @@ export function UserManager({
     scope: [] as string[],
   });
 
+  const [newPassword, setNewPassword] = useState('');
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  async function resetPassword(id: string) {
+    setPending(true);
+    setError(null);
+    setResetMessage(null);
+    try {
+      const response = await fetch('/api/admin/users/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password: newPassword }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: { message: string } };
+        setError(payload.error?.message ?? 'The password could not be reset.');
+        return;
+      }
+      setNewPassword('');
+      setResetMessage('Password reset. Any open sessions for this account have ended.');
+    } catch {
+      setError('We could not reach the server. Try again in a moment.');
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function send(method: 'POST' | 'PATCH', body: Record<string, unknown>) {
     setPending(true);
     setError(null);
@@ -166,7 +193,11 @@ export function UserManager({
               <Td>
                 <button
                   type="button"
-                  onClick={() => setEditing(user)}
+                  onClick={() => {
+                      setEditing(user);
+                      setNewPassword('');
+                      setResetMessage(null);
+                    }}
                   className="text-left font-medium hover:text-[var(--brand-600)] hover:underline"
                 >
                   {user.name}
@@ -258,6 +289,33 @@ export function UserManager({
               {ROLE_DESCRIPTIONS[editing.role]}
             </p>
             {canManage ? scopeField(editing.scope, (scope) => setEditing({ ...editing, scope })) : null}
+            {canManage && editing.id !== currentUserId ? (
+              <div className="space-y-2 border-t pt-3">
+                <TextInput
+                  label="New password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+                <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                  At least 10 characters. Give it to the person securely, and ask them to change it on their
+                  Account page.
+                </p>
+                <Button
+                  size="sm"
+                  disabled={pending || newPassword.length === 0}
+                  onClick={() => void resetPassword(editing.id)}
+                >
+                  Reset password
+                </Button>
+                {resetMessage ? (
+                  <p role="status" className="text-[12px] text-[var(--positive-700)]">
+                    {resetMessage}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <p className="border-t pt-3 text-[11px] text-[var(--text-tertiary)]">
               Created {new Date(editing.createdAt).toLocaleDateString('en-GB')}
               {editing.lastLoginAt

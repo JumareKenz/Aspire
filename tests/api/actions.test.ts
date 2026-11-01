@@ -4,8 +4,9 @@ import { createSchema, dropSchema, isolatedSchema } from '../helpers/db';
 const schema = isolatedSchema();
 const { ensureBootstrapped } = await import('@/data/bootstrap');
 const { listUsers } = await import('@/data/repositories/users');
-const { createAction, getAction } = await import('@/data/repositories/actions');
+const { createAction, getAction, updateAction } = await import('@/data/repositories/actions');
 const { resolveScope } = await import('@/auth/server');
+const { getActionAssignees } = await import('@/services/actions');
 const { scopesOverlap } = await import('@/auth/rbac');
 import type { User } from '@/data/repositories/users';
 
@@ -88,5 +89,85 @@ describe('an action is addressed by id, so scope is checked against the action',
     // exactly why the PATCH route re-checks the action's own geography rather
     // than trusting that the caller could only have found it through the list.
     expect((await getAction(sokotoAction.id))!.orgUnitId).toBe(SOKOTO);
+  });
+});
+
+describe('updating an action from the board', () => {
+  async function raised() {
+    return createAction({
+      title: 'Partial update',
+      detail: 'Keeps what the request left out.',
+      orgUnitId: BAUCHI,
+      indicatorId: null,
+      periodId: null,
+      source: 'MANUAL',
+      sourceRef: null,
+      priority: 'HIGH',
+      assigneeId: bauchiAnalyst.id,
+      createdBy: bauchiAnalyst.id,
+      dueDate: null,
+      baselineScore: null,
+    });
+  }
+
+  // The route passes every optional field along, so these are the shapes the
+  // board's status buttons and assignee list really produce.
+  it('changes the status and keeps the fields the request left out', async () => {
+    const action = await raised();
+    const updated = await updateAction(action.id, {
+      status: 'INVESTIGATING',
+      assigneeId: undefined,
+      outcome: undefined,
+      dueDate: undefined,
+      priority: undefined,
+    });
+    expect(updated?.status).toBe('INVESTIGATING');
+    expect(updated?.priority).toBe('HIGH');
+    expect(updated?.assigneeId).toBe(bauchiAnalyst.id);
+  });
+
+  it('changes the assignee and keeps the status', async () => {
+    const action = await raised();
+    const updated = await updateAction(action.id, {
+      status: undefined,
+      assigneeId: globalAnalyst.id,
+      outcome: undefined,
+      dueDate: undefined,
+      priority: undefined,
+    });
+    expect(updated?.assigneeId).toBe(globalAnalyst.id);
+    expect(updated?.status).toBe('OPEN');
+  });
+
+  it('treats null as clearing the assignee, not as leaving it alone', async () => {
+    const action = await raised();
+    const updated = await updateAction(action.id, { assigneeId: null });
+    expect(updated?.assigneeId).toBeNull();
+  });
+});
+
+describe('who the board offers for an action', () => {
+  it('offers only people who can open that action, even to a programme-wide officer', async () => {
+    const action = await createAction({
+      title: 'Sokoto follow-up',
+      detail: '',
+      orgUnitId: SOKOTO,
+      indicatorId: null,
+      periodId: null,
+      source: 'MANUAL',
+      sourceRef: null,
+      priority: 'MEDIUM',
+      assigneeId: null,
+      createdBy: globalAnalyst.id,
+      dueDate: null,
+      baselineScore: null,
+    });
+    const offered = (await getActionAssignees([action], await resolveScope(globalAnalyst)))[action.id];
+    const ids = offered.map((entry) => entry.id);
+    expect(ids).toContain(sokotoAnalyst.id);
+    expect(ids).toContain(admin.id);
+    expect(ids).not.toContain(bauchiAnalyst.id);
+    const executives = (await listUsers()).filter((user) => user.role === 'EXECUTIVE').map((user) => user.id);
+    expect(ids.some((id) => executives.includes(id))).toBe(false);
   });
 });

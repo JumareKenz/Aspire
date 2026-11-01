@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { execute, query, queryOne } from '../db/client';
+import { mergeDefined } from '@/lib/merge';
 import type { Severity } from '@/core/quality/types';
 
 /**
@@ -149,7 +150,7 @@ export async function updateAction(
 ): Promise<ActionItem | null> {
   const existing = await getAction(id);
   if (!existing) return null;
-  const merged = { ...existing, ...changes };
+  const merged = mergeDefined(existing, changes);
   await execute(
     `UPDATE actions SET status = $1, assignee_id = $2, outcome = $3, due_date = $4,
        priority = $5, updated_at = NOW() WHERE id = $6`,

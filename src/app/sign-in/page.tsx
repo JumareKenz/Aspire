@@ -35,6 +35,10 @@ export default async function SignInPage() {
           <SignInForm prefill={SEED_PASSWORD_IS_DEFAULT ? SEED_ACCOUNTS[0].email : undefined} />
         </div>
 
+        <p className="mt-3 text-center text-[11px] text-[var(--text-tertiary)]">
+          Forgotten your password? Ask your administrator to reset it.
+        </p>
+
         {SEED_PASSWORD_IS_DEFAULT ? (
           <div className="mt-4 rounded-[var(--radius-lg)] border border-[var(--warning-600)]/30 bg-[var(--warning-100)]/50 px-4 py-3">
             <p className="text-[12px] font-medium text-[var(--text-primary)]">

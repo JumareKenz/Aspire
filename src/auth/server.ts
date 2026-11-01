@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE, readSessionToken, type SessionClaims } from './session';
+import { SESSION_COOKIE, readSessionToken, sessionIsCurrent, type SessionClaims } from './session';
 import { can, isInScope, type Permission } from './rbac';
 import { canReach, experienceFor, permittedLevels, type Experience } from './experience';
 import { getUserById, type User } from '@/data/repositories/users';
@@ -24,6 +24,7 @@ export async function getCurrentUser(): Promise<User | null> {
   if (!claims) return null;
   const user = await getUserById(claims.sub);
   if (!user || !user.active) return null;
+  if (!sessionIsCurrent(claims.issuedAt, user.passwordChangedAt)) return null;
   return user;
 }
 

@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { execute, query, queryOne } from '../db/client';
+import { mergeDefined } from '@/lib/merge';
 
 /**
  * Three user tiers, as defined by the product. LGA, M&E, programme and
@@ -19,6 +20,8 @@ export interface User {
   active: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  /** When the password last changed. Sessions older than this are refused. */
+  passwordChangedAt: string | null;
 }
 
 interface Row {
@@ -31,6 +34,7 @@ interface Row {
   active: boolean;
   created_at: Date | string;
   last_login_at: Date | string | null;
+  password_changed_at: Date | string | null;
 }
 
 function iso(value: Date | string | null): string | null {
@@ -48,6 +52,7 @@ function toUser(row: Row): User {
     active: row.active,
     createdAt: iso(row.created_at) ?? '',
     lastLoginAt: iso(row.last_login_at),
+    passwordChangedAt: iso(row.password_changed_at),
   };
 }
 
@@ -91,6 +96,20 @@ export async function authenticate(email: string, password: string): Promise<Use
   return toUser(row);
 }
 
+/** Whether a password is this account's current one. Does not count as a sign-in. */
+export async function passwordMatches(id: string, password: string): Promise<boolean> {
+  const row = await queryOne<Row>('SELECT * FROM users WHERE id = $1', [id]);
+  return row ? verifyPassword(password, row.password_hash) : false;
+}
+
+/** Replaces a password, which also ends every session issued before now. */
+export async function setPassword(id: string, password: string): Promise<void> {
+  await execute('UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2', [
+    hashPassword(password),
+    id,
+  ]);
+}
+
 export interface CreateUserInput {
   email: string;
   name: string;
@@ -124,7 +143,7 @@ export async function updateUser(
 ): Promise<User | null> {
   const existing = await getUserById(id);
   if (!existing) return null;
-  const merged = { ...existing, ...changes };
+  const merged = mergeDefined(existing, changes);
   await execute('UPDATE users SET name = $1, role = $2, scope = $3, active = $4 WHERE id = $5', [
     merged.name,
     merged.role,

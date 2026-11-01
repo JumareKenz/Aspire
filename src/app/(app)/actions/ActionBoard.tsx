@@ -35,7 +35,8 @@ export function ActionBoard({
 }: {
   actions: ActionView[];
   canManage: boolean;
-  assignees: Array<{ id: string; name: string }>;
+  /** Who each action may be assigned to, by action id. */
+  assignees: Record<string, Array<{ id: string; name: string }>>;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<ActionView | null>(null);
@@ -218,11 +219,18 @@ export function ActionBoard({
                   }
                 >
                   <option value="">Unassigned</option>
-                  {assignees.map((assignee) => (
+                  {(assignees[selected.id] ?? []).map((assignee) => (
                     <option key={assignee.id} value={assignee.id}>
                       {assignee.name}
                     </option>
                   ))}
+                  {/* Kept visible so a card never reads as unassigned when it is not. */}
+                  {selected.assigneeId &&
+                  !(assignees[selected.id] ?? []).some((assignee) => assignee.id === selected.assigneeId) ? (
+                    <option value={selected.assigneeId} disabled>
+                      {selected.assigneeName ?? 'Unknown'} (no access to this action)
+                    </option>
+                  ) : null}
                 </Select>
 
                 <div className="flex flex-col gap-1">

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate } from '@/data/repositories/users';
 import { recordAudit } from '@/data/repositories/audit';
 import { ensureBootstrapped } from '@/data/bootstrap';
-import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from '@/auth/session';
+import { createSessionToken, SESSION_COOKIE, sessionCookieOptions } from '@/auth/session';
 import { fail, translateError } from '@/lib/api';
 
 const schema = z.object({
@@ -45,13 +45,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await recordAudit({ action: 'auth.sign_in', actorId: user.id, actorEmail: user.email, ip });
 
     const response = NextResponse.json({ data: { redirectTo: '/overview' } });
-    response.cookies.set(SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: SESSION_MAX_AGE_SECONDS,
-    });
+    response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
     return response;
   } catch (error) {
     return translateError(error);

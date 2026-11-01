@@ -115,6 +115,44 @@ export function scopesOverlap(
   return candidateScope.some((id) => viewerScopeIds.includes(id));
 }
 
+/**
+ * Whether someone can be given a follow-up action.
+ *
+ * Sharing geography with the person assigning is not enough: a programme-wide
+ * officer shares geography with everyone, including a Bauchi officer who could
+ * not open a Sokoto action. So the candidate must be able to use Actions and to
+ * read the action's own area. An action with no area falls back to overlap
+ * with the viewer.
+ */
+export function canTakeAction(
+  candidate: { role: Role; scope: string[]; active: boolean },
+  actionPath: string[] | null,
+  viewerScopeIds: string[],
+  viewerRootPath: string[],
+): boolean {
+  if (!candidate.active || !can(candidate.role, 'actions.view')) return false;
+  return actionPath
+    ? isInScope(candidate.scope, actionPath)
+    : scopesOverlap(viewerScopeIds, viewerRootPath, candidate.scope);
+}
+
+/**
+ * Whether an administrator may reset an account's password.
+ *
+ * A reset hands over the account, so it must not reach beyond the
+ * administrator's own geography: a state administrator resetting a
+ * programme-wide account would gain that account's access.
+ */
+export function canResetPassword(
+  adminScope: string[],
+  targetScope: string[],
+  targetScopePaths: string[][],
+): boolean {
+  if (adminScope.length === 0) return true;
+  if (targetScope.length === 0) return false;
+  return targetScopePaths.length === targetScope.length && targetScopePaths.every((path) => isInScope(adminScope, path));
+}
+
 export const ROLE_LABELS: Record<Role, string> = {
   EXECUTIVE: 'Executive',
   ANALYST: 'Programme and M&E',

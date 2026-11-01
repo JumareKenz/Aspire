@@ -15,7 +15,7 @@ const {
 const { replaceFindings, listFindings, setFindingStatus } = await import(
   '@/data/repositories/findings'
 );
-const { createUser, authenticate, hashPassword, verifyPassword, updateUser } = await import(
+const { setPassword, passwordMatches, getUserById, createUser, authenticate, hashPassword, verifyPassword, updateUser } = await import(
   '@/data/repositories/users'
 );
 const { periodRange, parsePeriod } = await import('@/core/model/periods');
@@ -257,6 +257,42 @@ describe('user credentials', () => {
 
     await updateUser(user.id, { active: false });
     expect(await authenticate('test.user@example.org', 'a-long-enough-password')).toBeNull();
+  });
+
+  it('keeps the fields an update leaves out', async () => {
+    const user = await createUser({
+      email: 'partial.update@example.org',
+      name: 'Partial Update',
+      role: 'ANALYST',
+      scope: ['lga-1'],
+      password: 'a-long-enough-password',
+    });
+
+    // The route passes every optional field along. These are the two shapes the
+    // user drawer produces: Save changes omits `active`, Disable omits the rest.
+    const saved = await updateUser(user.id, { name: 'Renamed', role: 'EXECUTIVE', scope: ['lga-2'], active: undefined });
+    expect(saved).toMatchObject({ name: 'Renamed', role: 'EXECUTIVE', scope: ['lga-2'], active: true });
+
+    const disabled = await updateUser(user.id, { name: undefined, role: undefined, scope: undefined, active: false });
+    expect(disabled).toMatchObject({ name: 'Renamed', role: 'EXECUTIVE', scope: ['lga-2'], active: false });
+  });
+
+  it('replaces a password and records when it changed', async () => {
+    const user = await createUser({
+      email: 'new.password@example.org',
+      name: 'New Password',
+      role: 'ANALYST',
+      scope: [],
+      password: 'the-first-password',
+    });
+    expect(user.passwordChangedAt).toBeNull();
+
+    await setPassword(user.id, 'the-second-password');
+
+    expect(await authenticate('new.password@example.org', 'the-first-password')).toBeNull();
+    expect((await authenticate('new.password@example.org', 'the-second-password'))?.id).toBe(user.id);
+    expect(await passwordMatches(user.id, 'the-second-password')).toBe(true);
+    expect((await getUserById(user.id))?.passwordChangedAt).not.toBeNull();
   });
 
   it('returns null for an unknown account rather than throwing', async () => {

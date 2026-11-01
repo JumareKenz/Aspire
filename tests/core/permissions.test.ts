@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, isInScope, permissionsFor, PERMISSIONS } from '@/auth/rbac';
+import { can, canResetPassword, canTakeAction, isInScope, permissionsFor, PERMISSIONS } from '@/auth/rbac';
 
 describe('role permissions', () => {
   it('gives executives read access and report generation, but no triage or admin', () => {
@@ -49,5 +49,61 @@ describe('geographic scope', () => {
 
   it('accepts any of several scoped units', () => {
     expect(isInScope(['lga-1', 'lga-2'], otherLgaPath)).toBe(true);
+  });
+});
+
+describe('who can take an action', () => {
+  const sokotoPath = ['root', 'state-sokoto'];
+  const viewer = { ids: ['root', 'state-bauchi', 'state-sokoto'], rootPath: ['root'] };
+  const take = (role: 'EXECUTIVE' | 'ANALYST', scope: string[], active = true, path: string[] | null = sokotoPath) =>
+    canTakeAction({ role, scope, active }, path, viewer.ids, viewer.rootPath);
+
+  it('accepts an officer who can read the action\'s area', () => {
+    expect(take('ANALYST', ['state-sokoto'])).toBe(true);
+    expect(take('ANALYST', [])).toBe(true);
+  });
+
+  it('refuses an officer of another state, even though the viewer shares geography with them', () => {
+    expect(take('ANALYST', ['state-bauchi'])).toBe(false);
+  });
+
+  it('refuses a role that has no Actions workspace', () => {
+    expect(take('EXECUTIVE', ['state-sokoto'])).toBe(false);
+    expect(take('EXECUTIVE', [])).toBe(false);
+  });
+
+  it('refuses a disabled account', () => {
+    expect(take('ANALYST', ['state-sokoto'], false)).toBe(false);
+  });
+
+  it('falls back to overlap with the viewer when the action names no area', () => {
+    expect(take('ANALYST', ['state-bauchi'], true, null)).toBe(true);
+  });
+});
+
+describe('who can reset a password', () => {
+  const bauchi = ['root', 'state-bauchi'];
+  const sokoto = ['root', 'state-sokoto'];
+
+  it('lets a programme-wide administrator reset anyone', () => {
+    expect(canResetPassword([], [], [])).toBe(true);
+    expect(canResetPassword([], ['state-sokoto'], [sokoto])).toBe(true);
+  });
+
+  it('lets a state administrator reset accounts inside their state', () => {
+    expect(canResetPassword(['state-bauchi'], ['lga-1'], [[...bauchi, 'lga-1']])).toBe(true);
+  });
+
+  it('refuses a state administrator a programme-wide account, which would widen their access', () => {
+    expect(canResetPassword(['state-bauchi'], [], [])).toBe(false);
+  });
+
+  it('refuses an account in another state, or reaching beyond their own', () => {
+    expect(canResetPassword(['state-bauchi'], ['state-sokoto'], [sokoto])).toBe(false);
+    expect(canResetPassword(['state-bauchi'], ['state-bauchi', 'state-sokoto'], [bauchi, sokoto])).toBe(false);
+  });
+
+  it('refuses when an assigned area can no longer be resolved', () => {
+    expect(canResetPassword(['state-bauchi'], ['gone'], [])).toBe(false);
   });
 });

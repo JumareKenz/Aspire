@@ -11,6 +11,32 @@ export interface SessionClaims {
   name: string;
   role: Role;
   scope: string[];
+  /** Seconds since the epoch, from the token. Absent on a token being created. */
+  issuedAt?: number;
+}
+
+/** Cookie settings shared by everything that issues a session. */
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
+
+/**
+ * Whether a session predates the account's latest password change.
+ *
+ * A password is replaced because it may be known to someone else, so a session
+ * opened with the old one must stop working rather than run out its 8 hours.
+ * Tokens carry whole seconds, so the comparison is made in whole seconds.
+ */
+export function sessionIsCurrent(issuedAt: number | undefined, passwordChangedAt: string | null): boolean {
+  if (!passwordChangedAt) return true;
+  if (issuedAt === undefined) return false;
+  return issuedAt >= Math.floor(new Date(passwordChangedAt).getTime() / 1000);
 }
 
 /**
@@ -50,6 +76,7 @@ export async function readSessionToken(token: string): Promise<SessionClaims | n
       name: String(payload.name ?? ''),
       role: payload.role as Role,
       scope: Array.isArray(payload.scope) ? (payload.scope as string[]) : [],
+      issuedAt: payload.iat,
     };
   } catch {
     return null;
